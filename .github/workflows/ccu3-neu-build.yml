@@ -1,0 +1,52 @@
+name: CCU3-neu Build (rpi3)
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Platz schaffen und Abhaengigkeiten
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wget bc cpio rsync zip python3 file unzip patch perl libncurses-dev libssl-dev ccache
+          sudo mkdir -p /mnt/work && sudo chown runner:runner /mnt/work
+          df -h / /mnt
+
+      - name: Cache Quellen (download)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /mnt/work/download
+          key: dl-rpi3-${{ github.run_id }}
+          restore-keys: dl-rpi3-
+
+      - name: Cache ccache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: /mnt/work/ccache
+          key: cc-rpi3-${{ github.run_id }}
+          restore-keys: cc-rpi3-
+
+      - name: Build (max. 5h40, Rest kommt beim naechsten Lauf per Cache)
+        run: |
+          mkdir -p /mnt/work/download /mnt/work/ccache
+          DATE=$(date +%Y%m%d)
+          set +e
+          timeout 20400 nice -n 19 make DATE=$DATE BR2_DL_DIR=/mnt/work/download BR2_CCACHE_DIR=/mnt/work/ccache BR2_JLEVEL=$(nproc) PRODUCT=rpi3 release > /mnt/work/build.log 2>&1
+          echo "make exit: $?"
+          tail -n 40 /mnt/work/build.log
+          ls -la release/ || true
+
+      - name: Ergebnis hochladen
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: openccu-rpi3
+          path: |
+            release/OpenCCU-*-rpi3.zip*
+            /mnt/work/build.log
+          if-no-files-found: warn
