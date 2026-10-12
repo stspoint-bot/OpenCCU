@@ -1,6 +1,15 @@
 name: CCU3-neu Build (rpi3)
+# Vollautomatisch: baut bis zu 5h40 pro Lauf, speichert Quellen + ccache, startet sich bei unfertigem Bau selbst neu
+# (max. 8 Laeufe hintereinander) und legt das fertige Image als Release "build-<datum>-<lauf>" ab.
 on:
   workflow_dispatch:
+    inputs:
+      attempt:
+        description: 'Laufende Nummer der Fortsetzung (nicht von Hand setzen)'
+        default: '1'
+permissions:
+  contents: write
+  actions: write
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -31,22 +40,50 @@ jobs:
           key: cc-rpi3-${{ github.run_id }}
           restore-keys: cc-rpi3-
 
-      - name: Build (max. 5h40, Rest kommt beim naechsten Lauf per Cache)
+      - name: Build (max. 5h40)
+        id: build
         run: |
           mkdir -p /mnt/work/download /mnt/work/ccache
           DATE=$(date +%Y%m%d)
           set +e
           timeout 20400 nice -n 19 make DATE=$DATE BR2_DL_DIR=/mnt/work/download BR2_CCACHE_DIR=/mnt/work/ccache BR2_JLEVEL=$(nproc) PRODUCT=rpi3 release > /mnt/work/build.log 2>&1
-          echo "make exit: $?"
+          RC=$?
+          echo "make exit: $RC"
           tail -n 40 /mnt/work/build.log
           ls -la release/ || true
+          if ls release/OpenCCU-*-rpi3.zip >/dev/null 2>&1; then echo "done=true" >> "$GITHUB_OUTPUT"; else echo "done=false" >> "$GITHUB_OUTPUT"; fi
+          echo "rc=$RC" >> "$GITHUB_OUTPUT"
 
-      - name: Ergebnis hochladen
-        if: always()
+      - name: Fertiges Image als Release ablegen
+        if: steps.build.outputs.done == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-$(date +%Y%m%d)-${{ github.run_id }}"
+          gh release create "$TAG" release/OpenCCU-*-rpi3.zip* /mnt/work/build.log --title "CCU3-neu $TAG" --notes "Automatischer Bau (rpi3). Nur mit Freigabe von Thomas aufspielen."
+
+      - name: Build-Log sichern (bei Fehlschlag)
+        if: steps.build.outputs.done != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
-          name: openccu-rpi3
-          path: |
-            release/OpenCCU-*-rpi3.zip*
-            /mnt/work/build.log
-          if-no-files-found: warn
+          name: build-log-${{ github.run_id }}
+          path: /mnt/work/build.log
+          retention-days: 7
+
+    outputs:
+      done: ${{ steps.build.outputs.done }}
+      rc: ${{ steps.build.outputs.rc }}
+
+  weiter:
+    # Eigener Job: laeuft erst, wenn der Bau-Job samt Cache-Speicherung beendet ist.
+    needs: build
+    if: needs.build.outputs.done != 'true' && needs.build.outputs.rc == '124' && fromJSON(github.event.inputs.attempt) < 8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fortsetzung starten
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NEXT=$(( ${{ github.event.inputs.attempt }} + 1 ))
+          gh workflow run ccu3-neu-build.yml --ref "${{ github.ref_name }}" -f attempt=$NEXT -R "${{ github.repository }}"
