@@ -6,7 +6,8 @@ set -e
 T="$1"
 ERRPAGE="$2"
 W="${T}/www"
-[ -d "$W" ] || { echo "remove-old-ui: ${W} fehlt" >&2; exit 1; }
+# Der Finalize-Hook laeuft auch im verschachtelten 32-Bit-Bau (multilib32) ohne /www: dort nichts tun.
+[ -d "$W" ] || { echo "remove-old-ui: ${W} fehlt (Nebenbau multilib32) - uebersprungen"; exit 0; }
 
 rmf() { for p in "$@"; do rm -rf "${W}/${p}"; done; }
 
