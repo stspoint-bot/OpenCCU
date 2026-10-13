@@ -105,8 +105,15 @@ PermitEmptyPasswords no
 #PermitTunnel no
 #ChrootDirectory none
 #VersionAddendum none
-Ciphers aes256-ctr,aes192-ctr,aes128-ctr
-MACs hmac-sha2-256,hmac-sha2-512
+# CCU3-neu (13.10.2026): moderne Verfahren (AEAD/ETM); KexAlgorithms bleiben beim sicheren OpenSSH-10-Standard (mlkem768x25519 u. a.)
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+LoginGraceTime 30
+MaxAuthTries 3
+X11Forwarding no
+AllowAgentForwarding no
+ClientAliveInterval 300
+ClientAliveCountMax 2
 
 # no default banner path
 #Banner none
