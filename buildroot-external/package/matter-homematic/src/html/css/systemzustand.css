@@ -1,0 +1,37 @@
+/* Systemzustand als Ampel (13.10.2026) – PC-Seite und Handy-Reiter */
+.sz{display:grid;gap:16px}
+.sz-kopf{display:flex;gap:18px;align-items:center;padding:18px 20px;border-radius:16px;border:1px solid var(--line);background:#fff}
+.sz-kopf.sz-gruen{background:var(--green-soft);border-color:#cfe5d8}
+.sz-kopf.sz-gelb{background:var(--warn-soft);border-color:#ecd9a8}
+.sz-kopf.sz-rot{background:var(--bad-soft);border-color:#f3c9c4}
+.sz-kopf h2{margin:0 0 4px;font-size:24px}.sz-kopf p{margin:0 0 6px}
+.sz-gross{font-size:64px;line-height:1;flex:none}
+.sz-zahlen{display:flex;flex-wrap:wrap;gap:6px 16px;font-weight:600}
+.sz-offen h3,.sz-scan h3{margin:0 0 8px;font-size:17px}
+.sz-liste{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.sz-zeile{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:#f7faf8;line-height:1.35}
+.sz-zeile.sz-hinweis{background:var(--warn-soft)}.sz-zeile.sz-warnung,.sz-zeile.sz-fehler{background:var(--bad-soft)}
+.sz-licht{flex:none;font-size:16px;line-height:1.35}
+.sz-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.sz-gruppen{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-items:start}
+.sz-gruppe{border:1px solid var(--line);border-radius:14px;background:#fff;padding:0 12px}
+.sz-gruppe>summary{display:flex;gap:10px;align-items:center;padding:12px 0;cursor:pointer;list-style:none;font-size:16px}
+.sz-gruppe>summary::-webkit-details-marker{display:none}
+.sz-gruppe>summary small{margin-left:auto;color:var(--muted);font-size:13px;text-align:right}
+.sz-gruppe[open]>summary{border-bottom:1px solid var(--line);margin-bottom:10px}
+.sz-gruppe[open]{padding-bottom:12px}
+.sz-gruppe.sz-hinweis{border-color:#ecd9a8}.sz-gruppe.sz-warnung,.sz-gruppe.sz-fehler{border-color:#f3c9c4}
+.sz-scan{border:1px solid var(--line);border-radius:14px;background:#fff;padding:14px 16px}
+.sz-scan p{margin:0 0 8px}
+.sz-info{line-height:1.6}
+/* Handy-Reiter mit der Ampelfarbe: schmal, großes Symbol */
+.mob-tab.mob-tab-ampel{flex:0 0 46px;font-size:22px;padding:0}
+body.mob .sz{padding:4px 0}
+/* Handy: alles untereinander, große Schrift, große Knöpfe */
+.sz-gruppen.kompakt{grid-template-columns:1fr}
+@media(max-width:640px){
+  .sz-kopf{padding:14px;gap:12px}.sz-gross{font-size:52px}.sz-kopf h2{font-size:21px}
+  .sz-gruppen{grid-template-columns:1fr}
+  .sz-zeile{font-size:15px}
+  .sz .btn,.sz-scan .btn{min-height:44px}
+}

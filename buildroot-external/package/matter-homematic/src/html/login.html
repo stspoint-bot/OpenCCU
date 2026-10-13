@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anmeldung · CCU3 Matter</title>
+<!-- Vor der Anmeldung liefert die Bridge nur diese Seite und /js/login.js aus: Gestaltung deshalb hier. -->
+<style>
+:root{--ink:#172e32;--muted:#738487;--green:#176c60;--line:#e3e9e6;--bg:#f4f7f5}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.5 Arial,Helvetica,sans-serif;padding:20px}
+main{width:100%;max-width:400px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:32px 28px;box-shadow:0 10px 40px #172e3210}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.mark{display:grid;place-items:center;width:40px;height:40px;border-radius:11px;background:var(--green);color:#fff}
+.brand b{display:block;font-size:20px;font-weight:800;letter-spacing:.4px}.brand b span{font-weight:400}
+.brand small{display:block;color:var(--muted);font-size:10px;letter-spacing:1px;text-transform:uppercase}
+h1{font-size:22px;margin:0 0 6px;font-weight:600;letter-spacing:-.4px}
+p{color:var(--muted);font-size:13px;margin:0 0 18px}
+label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#62776c;margin-bottom:14px}
+input{width:100%;min-height:44px;padding:10px 12px;border:1px solid #dce5de;border-radius:7px;font:inherit;font-size:16px;color:var(--ink)}
+input:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px #176c6018}
+button{width:100%;min-height:46px;border:0;border-radius:7px;background:var(--green);color:#fff;font:inherit;font-weight:600;cursor:pointer;margin-top:6px}
+button:hover{background:#10584e}button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:3px solid #65baa1;outline-offset:3px}
+#error{color:#b42318;font-size:13px;min-height:20px;margin:12px 0 0}
+.hint{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:12px}
+label.merken{flex-direction:row;align-items:center;gap:8px;font-size:14px;color:var(--ink)}label.merken[hidden]{display:none}
+label.merken input{width:22px;min-height:22px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><div class="mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 18 18" fill="none"><path d="M3 9.5 10 3l7 6.5V17H3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></div><div><b>CCU3 <span>Matter</span></b><small>Homematic-Zentrale</small></div></div>
+  <h1>Anmelden</h1>
+  <p>Mit dem Benutzernamen der CCU (Administrator) oder einem eigenen Benutzer (Bewohner/Gast) anmelden.</p>
+  <form id="login">
+    <label>Benutzername<input name="username" autocomplete="username" maxlength="64" required autofocus></label>
+    <label>Passwort<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
+    <label id="merken-zeile" class="merken" hidden><input type="checkbox" name="merken"> Dieses Gerät 30 Tage angemeldet lassen</label>
+    <button>Anmelden</button>
+    <p id="error" role="alert"></p>
+  </form>
+  <p class="hint">Das Passwort wird nur zur Prüfung an die CCU weitergegeben und nicht gespeichert. Die Anmeldung gilt 2 Tage oder bis „Abmelden“ – mit Häkchen 30 Tage auf diesem Gerät (widerrufbar unter „Mein Konto“).</p>
+</main>
+<script src="/js/login.js"></script>
+</body>
+</html>

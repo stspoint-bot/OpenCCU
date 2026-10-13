@@ -1,0 +1,9 @@
+# Ueberwachung der Matter-Bridge (monit-Zyklus 13 s). Neustart erst nach 14 Fehlpruefungen in Folge (~3 Min),
+# danach Abbruch der Ueberwachung nach 3 Neustarts in ~13 Min. Installationen/Updates: "monit unmonitor/monitor matter-homematic".
+check process matter-homematic with pidfile /var/run/matter-homematic.pid
+    group addons
+    start program = "/etc/init.d/S97matter-homematic start" with timeout 180 seconds
+    stop program = "/etc/init.d/S97matter-homematic stop" with timeout 30 seconds
+    if not exist for 14 cycles then restart
+    if failed host 127.0.0.1 port 8090 protocol http request "/api/?method=webAuthInfo" content = "mh-web-auth-v1" for 14 cycles then restart
+    if 3 restarts within 60 cycles then unmonitor

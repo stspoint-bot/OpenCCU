@@ -1,0 +1,26 @@
+{
+  "node": "v22.23.3",
+  "architecture": "linux-armv7l",
+  "download": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-armv7l.tar.xz",
+  "archiveSha256": "590a2768199bdd0b848648a81cd7f07f88a5ceb27949f0c70d5e6652c3eaca69",
+  "binarySha256": "732107721b6fcbd1d0939dfaa581cec0ae2168fc89d8afa4411268f8aa9e4102",
+  "glibcSymbols": [
+    "GLIBC_2.10",
+    "GLIBC_2.12",
+    "GLIBC_2.14",
+    "GLIBC_2.16",
+    "GLIBC_2.17",
+    "GLIBC_2.25",
+    "GLIBC_2.27",
+    "GLIBC_2.28",
+    "GLIBC_2.4",
+    "GLIBC_2.6",
+    "GLIBC_2.7",
+    "GLIBC_2.9"
+  ],
+  "coreui": {
+    "version": "5.3.1",
+    "sha256": "e345cc30d0f00d64810225ed8e72a177c10b68e42e6f9c74f5e80b1444ecb764",
+    "source": "https://cdn.jsdelivr.net/npm/@coreui/coreui@5.3.1/dist/css/coreui.min.css"
+  }
+}

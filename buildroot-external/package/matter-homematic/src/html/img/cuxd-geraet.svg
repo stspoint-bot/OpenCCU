@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 250" width="250" height="250" role="img" aria-label="CUxD-Gerät (WLAN-Steckdose)">
+  <!-- Strichzeichnung im Stil der CCU3-Gerätebilder: Zwischenstecker, leicht von links gesehen, mit WLAN-Zeichen (CUxD/Tasmota) -->
+  <g fill="none" stroke="#111" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Gehäuse: Rückseite/Seite (Tiefe) -->
+    <path d="M58 40 L44 50 Q36 56 36 66 L36 196 Q36 206 44 212 L58 222" stroke-width="3"/>
+    <path d="M44 50 Q38 58 38 70 L38 194 Q38 204 44 212" stroke-width="1.5"/>
+    <!-- Vorderseite (abgerundetes Quadrat) -->
+    <rect x="58" y="34" width="166" height="190" rx="22" ry="22" stroke-width="3.2"/>
+    <rect x="66" y="42" width="150" height="174" rx="16" ry="16" stroke-width="1.4"/>
+    <!-- Steckdosen-Mulde -->
+    <circle cx="138" cy="136" r="58" stroke-width="3"/>
+    <circle cx="138" cy="136" r="51" stroke-width="1.4"/>
+    <!-- Kontaktlöcher -->
+    <circle cx="116" cy="136" r="7.5" stroke-width="2.6"/>
+    <circle cx="160" cy="136" r="7.5" stroke-width="2.6"/>
+    <!-- Schutzkontakte oben und unten -->
+    <path d="M128 85 L128 95 L148 95 L148 85" stroke-width="2.6"/>
+    <path d="M128 187 L128 177 L148 177 L148 187" stroke-width="2.6"/>
+    <!-- Seitliche Führungen -->
+    <path d="M88 124 L94 124 L94 148 L88 148" stroke-width="2"/>
+    <path d="M188 124 L182 124 L182 148 L188 148" stroke-width="2"/>
+    <!-- WLAN-Zeichen oben rechts (statt Funk-LED) -->
+    <g transform="translate(196 62)" stroke-width="2.6">
+      <path d="M-13 -2 Q0 -14 13 -2"/>
+      <path d="M-8 3 Q0 -4 8 3"/>
+      <circle cx="0" cy="8" r="2.2" fill="#111" stroke="none"/>
+    </g>
+  </g>
+</svg>

@@ -522,4 +522,5 @@ check program tailscaleEnabled with path "/usr/bin/test -f /etc/config/tailscale
     if status != 0 for 1 cycles then unmonitor
 
 # include user-defined configuration files
+include /etc/monit.d/*.cfg
 include /usr/local/etc/monit*.cfg

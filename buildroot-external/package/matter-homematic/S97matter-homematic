@@ -1,0 +1,76 @@
+#!/bin/sh
+# shellcheck shell=dash disable=SC2169
+#
+# Startet/stoppt die Matter-Homematic-Bridge (CCU3-neu). Teil des Systemabbilds:
+# Programm read-only unter /usr/lib/matter-homematic, Daten unter /usr/local/etc/config/addons/matter-homematic.
+# Reihenfolge: nach rfd/HMIPServer/ReGaHss (S61/S62/S70), vor S98StartAddons.
+#
+ID=matter-homematic
+APP_DIR=/usr/lib/${ID}
+DATA_DIR=/usr/local/etc/config/addons/${ID}
+NODE=/usr/bin/node
+APP=${APP_DIR}/dist/index.js
+PIDFILE=/var/run/${ID}.pid
+LEGACY=/usr/local/etc/config/rc.d/${ID}
+export MATTER_HOMEMATIC_DATA_DIR="${DATA_DIR}"
+export HOME="${DATA_DIR}"
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+
+running() {
+  [ -f "$PIDFILE" ] || return 1
+  PID=$(cat "$PIDFILE")
+  case "$PID" in ""|*[!0-9]*) return 1;; esac
+  kill -0 "$PID" 2>/dev/null || return 1
+  tr '\000' '\n' < "/proc/$PID/cmdline" 2>/dev/null | grep -Fxq "$APP"
+}
+
+# Altes Add-on (rc.d-Skript aus /usr/local, startete eine zweite Bridge auf denselben Ports): beim ersten Start beiseitelegen.
+migrate_legacy() {
+  [ -f "$LEGACY" ] || return 0
+  mkdir -p "${DATA_DIR}"
+  mv -f "$LEGACY" "${DATA_DIR}/rc.d-matter-homematic.alt-vor-image" 2>/dev/null || true
+  logger -t ${ID} "altes Add-on-Startskript beiseitegelegt (jetzt Teil des Systemabbilds)" 2>/dev/null || true
+}
+
+start() {
+  [ -x "$NODE" ] && [ -f "$APP" ] || { echo "FAILED (node/app fehlt)"; return 1; }
+  migrate_legacy
+  if running; then return 0; fi
+  rm -f "$PIDFILE"
+  mkdir -p "${DATA_DIR}"
+  cd "${DATA_DIR}" || return 1
+  [ ! -f "${DATA_DIR}/startup.log" ] || mv -f "${DATA_DIR}/startup.log" "${DATA_DIR}/startup.previous.log"
+  : > "${DATA_DIR}/startup.log"
+  logger -t ${ID} "starting Matter bridge" 2>/dev/null || true
+  start-stop-daemon -S -b -m -p "$PIDFILE" -x "$NODE" -- "$APP" >>"${DATA_DIR}/startup.log" 2>&1 || return 1
+  if ! "$NODE" "${APP_DIR}/dist/healthcheck.js" "${DATA_DIR}/config.json" 120 --web-ready; then
+    stop || true
+    logger -t ${ID} "service readiness failed; see ${DATA_DIR}/startup.log" 2>/dev/null || true
+    return 1
+  fi
+}
+
+stop() {
+  if running; then
+    PID=$(cat "$PIDFILE")
+    kill -TERM "$PID" 2>/dev/null
+    COUNT=0
+    while running && [ "$COUNT" -lt 8 ]; do sleep 1; COUNT=$((COUNT + 1)); done
+    if running; then
+      kill -KILL "$PID" 2>/dev/null
+      sleep 2
+    fi
+    running && return 1
+  fi
+  rm -f "$PIDFILE"
+  return 0
+}
+
+case "$1" in
+  start)   echo -n "Starting ${ID}: "; start && echo OK || echo FAILED ;;
+  stop)    echo -n "Stopping ${ID}: "; stop && echo OK || echo FAILED ;;
+  restart) stop && start ;;
+  status)  if running; then echo "${ID} is running (PID $(cat "$PIDFILE"))"; else echo "${ID} is stopped"; exit 1; fi ;;
+  *)       echo "Usage: $0 {start|stop|restart|status}" >&2; exit 1 ;;
+esac
+exit 0

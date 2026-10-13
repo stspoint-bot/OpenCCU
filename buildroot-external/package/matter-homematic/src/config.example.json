@@ -1,0 +1,65 @@
+{
+  "bridge": {
+    "name": "TSPoint-Bridge",
+    "port": 5540,
+    "passcode": 20242024,
+    "discriminator": 3840,
+    "vendorId": 65521,
+    "productId": 32769,
+    "storagePath": "./.matter-homematic",
+    "mdnsInterface": "eth0"
+  },
+  "ccu": {
+    "host": "192.168.1.100",
+    "interfaces": {
+      "BidCos-RF": {
+        "enabled": true,
+        "port": 2001
+      },
+      "HmIP-RF": {
+        "enabled": true,
+        "port": 2010
+      },
+      "VirtualDevices": {
+        "enabled": false,
+        "port": 9292
+      },
+      "ShellyHM": {
+        "enabled": false,
+        "port": 2121
+      }
+    },
+    "callbackPort": 9875,
+    "callbackHost": "",
+    "regaPort": 80
+  },
+  "devices": {
+    "filter": {
+      "rooms": [],
+      "functions": [],
+      "include": [],
+      "exclude": []
+    },
+    "defaultExposed": false,
+    "exposed": {},
+    "tilt": {},
+    "roomNames": {},
+    "customMappings": []
+  },
+  "systemVariables": {
+    "exposed": {}
+  },
+  "web": {
+    "enabled": false,
+    "port": 8080,
+    "host": "0.0.0.0",
+    "publicOrigin": "https://tspoint.tplinkdns.com",
+    "trustedProxies": [],
+    "authEnabled": true,
+    "localBindAuto": true
+  },
+  "logging": {
+    "level": "info",
+    "file": ""
+  }
+}

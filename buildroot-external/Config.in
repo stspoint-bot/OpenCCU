@@ -36,6 +36,7 @@ menu "Software Support"
   source "$BR2_EXTERNAL_EQ3_PATH/package/raspi-fanshim/Config.in"
   source "$BR2_EXTERNAL_EQ3_PATH/package/xe-guest-utilities/Config.in"
   source "$BR2_EXTERNAL_EQ3_PATH/package/tailscale-bin/Config.in"
+  source "$BR2_EXTERNAL_EQ3_PATH/package/matter-homematic/Config.in"
 endmenu
 
 menu "Java Runtime Environment"

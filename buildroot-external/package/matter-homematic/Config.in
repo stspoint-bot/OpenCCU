@@ -1,0 +1,9 @@
+config BR2_PACKAGE_MATTER_HOMEMATIC
+	bool "Matter-Homematic Bridge (CCU3-neu)"
+	depends on BR2_PACKAGE_NODEJS
+	help
+	  Matter bridge (Apple Home) for Homematic/HomematicIP devices,
+	  integrated into the system image. Uses the image's Node.js.
+
+	  Program files are installed read-only to /usr/lib/matter-homematic,
+	  data is kept in /usr/local/etc/config/addons/matter-homematic.

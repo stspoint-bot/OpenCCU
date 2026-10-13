@@ -1,0 +1,30 @@
+{
+  "name": "CCU Matter",
+  "short_name": "CCU Matter",
+  "description": "Homematic-Zentrale mit Matter – Handy-Ansicht",
+  "start_url": "/mobil.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f7f5",
+  "theme_color": "#176c60",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "/img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/img/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+Node implementation of the EU read-only protocol in hass-uconnect/py-uconnect, Apache-2.0. Upstream copyright Olga Novgorodova and contributors. Source: https://github.com/hass-uconnect/py-uconnect, commit 37ae5e4082b2841ec096211821340a2688d355b0. Modified for bounded requests, secret handling, validation and read-only integration.
