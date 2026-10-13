@@ -10,7 +10,7 @@
 # ${RUN}/status-detail) statt stillschweigend unverschluesselt zu laufen. Der Speicher ist austauschbar: nur HOST/SHARE/Zugangsdaten
 # aendern (jedes SMB3-faehige NAS, Windows-Freigabe oder Samba-Server).
 # Nichts Boot-Kritisches liegt auf dem Netzspeicher; ohne Konfiguration oder bei ausgeschaltetem NAS passiert nichts.
-# Aufrufe: prepare | start | stop | restart | remount | check | status | info | selftest
+# Aufrufe: prepare | start | stop | restart | remount | check | watch | status | info | selftest
 #
 # Verzeichnis enthaelt eine Datei ".nobackup": createBackup.sh (tar --exclude-tag=.nobackup) nimmt den Inhalt NICHT in die
 # CCU-Sicherung (.sbk) auf, also auch nicht in Kopien ausser Haus. Aufruf "prepare" legt Verzeichnis (0700) und Marker an.
@@ -36,13 +36,31 @@ prepare() { mkdir -p "$DIR" && chmod 0700 "$DIR" && : > "${DIR}/.nobackup" && ch
 
 umount_all() { n=0; while [ "$(mounts)" -gt 0 ] && [ $n -lt 20 ]; do umount -l "$MP" 2>/dev/null; n=$((n + 1)); done; }
 
+# Konfiguration einlesen OHNE sie als Shell-Code auszufuehren (keine Befehls-/Optionseinschleusung ueber HOST, SHARE, DOMAIN ...).
+# Nur bekannte Schluessel, nur erlaubte Zeichen/Werte; sonst Abbruch mit Meldung.
+load_conf() {
+  HOST=; SHARE=; VERS=; SEAL=; ALLOW_LEGACY=; DOMAIN=
+  while IFS='=' read -r k v || [ -n "$k" ]; do
+    v=${v%"$(printf '\r')"}; v=${v#\"}; v=${v%\"}
+    case "$k" in
+      HOST) HOST=$v ;; SHARE) SHARE=$v ;; VERS) VERS=$v ;; SEAL) SEAL=$v ;; ALLOW_LEGACY) ALLOW_LEGACY=$v ;; DOMAIN) DOMAIN=$v ;;
+    esac
+  done < "$CONF"
+  case "$HOST" in ""|*[!A-Za-z0-9._:-]*) log "HOST fehlt oder enthaelt ungueltige Zeichen"; return 1;; esac
+  case "$SHARE" in ""|*[!A-Za-z0-9._\$-]*) log "SHARE fehlt oder enthaelt ungueltige Zeichen"; return 1;; esac
+  case "$DOMAIN" in *[!A-Za-z0-9._-]*) log "DOMAIN enthaelt ungueltige Zeichen"; return 1;; esac
+  case "${SEAL:-1}" in 0|1) ;; *) log "SEAL muss 0 oder 1 sein"; return 1;; esac
+  case "${ALLOW_LEGACY:-0}" in 0|1) ;; *) log "ALLOW_LEGACY muss 0 oder 1 sein"; return 1;; esac
+  for t in $VERS; do case "$t" in 3.1.1|3.0|2.1) ;; *) log "VERS: unbekannte Version $t"; return 1;; esac; done
+  return 0
+}
+
 mount_once() {
   # Ohne Konfiguration (z. B. nach dem Abschalten in der Oberflaeche): aushaengen und fertig.
   configured || { umount_all; return 0; }
   prepare
-  # shellcheck disable=SC1090
-  . "$CONF"
-  [ -n "$HOST" ] && [ -n "$SHARE" ] || { log "HOST/SHARE fehlen in $CONF"; return 1; }
+  chmod 0600 "$CRED" "$CONF" 2>/dev/null
+  load_conf || { mkdir -p "$RUN"; echo "fehler: ungueltige Konfiguration ($CONF)" > "$DETAIL"; return 1; }
   mkdir -p "$RUN" "$MP"
   now > "$LAST"
   umount_all
@@ -107,11 +125,17 @@ case "$1" in
   prepare) prepare ;;
   info)    grep -iE "Dialect|Encryption|SecMode" /proc/fs/cifs/DebugData 2>/dev/null; cat "$DETAIL" 2>/dev/null ;;
   selftest) selftest; exit $? ;;
+  watch)   # fuer monit: erst ggf. neu einhaengen, Rueckgabe 0 = in Ordnung oder nicht konfiguriert/pausiert, 1 = konfiguriert aber nicht verbunden
+    check
+    configured || exit 0
+    paused && exit 0
+    [ "$(mounts)" -eq 1 ] && responsive && exit 0
+    exit 1 ;;
   status)
     configured || { echo "nicht konfiguriert"; exit 3; }
     paused && { echo "pausiert (Anmeldung abgelehnt)"; exit 2; }
     if [ "$(mounts)" -eq 1 ] && responsive; then echo "verbunden"; exit 0; fi
     echo "nicht verbunden"; exit 1;;
-  *) echo "Usage: $0 {prepare|start|stop|restart|remount|check|status|info|selftest}" >&2; exit 1;;
+  *) echo "Usage: $0 {prepare|start|stop|restart|remount|check|watch|status|info|selftest}" >&2; exit 1;;
 esac
 exit 0
