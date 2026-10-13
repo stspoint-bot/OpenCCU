@@ -188,6 +188,7 @@ const GET = {
 const POST = { runCcuProgram: runProgram, setCcuProgramNote: setProgramNote };
 
 async function handle(web, req, res, u, auth) {
+  if (require('./statisch').handle(web, req, res, u)) return true; // versionierte Skripte/Styles: gzip + Browser-Zwischenspeicher
   if (await require('./geraete-bilder').handle(web, req, res, u, auth)) return true;
   if (u.pathname !== '/api/') return false;
   if (await require('./ccu-verbindung').handle(web, req, res, u, auth)) return true;

@@ -264,7 +264,7 @@ class Fernsteuerung {
 const instances = new WeakMap(); let lastWeb = null;
 // Befehl aus Apple Home (Jeep-Türschloss, jeep-schloss.js): gleicher Weg wie von Hand (PIN, 30 s Abstand, Bestätigung)
 let sofortTimer = null;
-function attach(web) { lastWeb = web; try { require('./jeep-schloss').start(web); } catch {} try { require('./jeep-wache').start(web); } catch { console.error('[jeep-wache] Start fehlgeschlagen (Details ausgelassen)'); } if (!sofortTimer) { sofortTimer = setInterval(() => fern(web).sofortCheck().catch(() => {}), 300000); sofortTimer.unref?.(); } } // Türstatus alle 15 min lesen
+function attach(web) { lastWeb = web; try { require('./jeep-schloss').start(web); } catch {} try { require('./jeep-wache').start(web); } catch { console.error('[jeep-wache] Start fehlgeschlagen (Details ausgelassen)'); } if (!sofortTimer) { sofortTimer = setInterval(() => fern(web).sofortCheck().catch(() => {}), 300000); sofortTimer.unref?.(); } } // Befehlsrückmeldungen (Türen) alle 5 min lesen
 async function fromMatter(vehicleHash, lock) {
   if (!lastWeb) throw fail('Jeep-Fernsteuerung noch nicht bereit', 503);
   const f = fern(lastWeb), row = f.rows().find(r => require('./jeep-matter').vehicleId(r.vin) === vehicleHash);

@@ -202,7 +202,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const c = d.costs, months = c?.months || [];
     cards.push(h('article', { class: 'card' }, h('div', { class: 'card-head' }, h('b', { text: 'Ladekosten' }), h('span', { class: 'tag', text: c?.priceEur ? de2(c.priceEur, 4) + ' €/kWh' : 'kein Strompreis' })),
       ...(months.length ? months.slice(0, 6).map(m => row(m.month.slice(5) + '/' + m.month.slice(0, 4), de2(m.kWh) + ' kWh' + (m.costEur !== null ? ' · ' + de2(m.costEur) + ' €' : ''))) : [h('p', { class: 'muted', text: 'Noch keine Ladungen aufgezeichnet (Seite Automationen → „Jeep laden“, Steckdose wählen).' })])));
-    zsBox.replaceChildren(h('div', { class: 'cards' }, cards));
+    // Verbrauchsdiagramme wie unter Automationen → „Jeep laden“ (Wunsch Thomas 13.10.2026): je Monat und je Ladung
+    const charts = c ? [NEU.jeepMonatChart(months), NEU.jeepLadungenChart(c.sessions || [])].filter(Boolean) : [];
+    zsBox.replaceChildren(h('div', { class: 'cards' }, cards), ...(charts.length ? [h('div', { style: 'margin-top:12px' }, charts)] : []));
   }
   const jwLoad = () => api('getJeepWache').then(jwShow).catch(e => msg(jwOut, e.message, 'bad'));
   jwSave.addEventListener('click', async () => { jwSave.disabled = true; try { const p = { notPluggedTime: jw.notPluggedTime.value, nightLockTime: jw.nightLockTime.value }; for (const k of ['frost', 'gaveUp', 'notPlugged', 'low', 'tyres', 'nightLock']) p[k] = jw[k].checked; const r = await api('saveJeepWache', p); jwShow(r); msg(jwOut, r.message, 'ok'); } catch (e) { msg(jwOut, e.message, 'bad'); } finally { jwSave.disabled = false; } });
@@ -327,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
           // Kein QR-Code mehr (Wunsch Thomas): Angemeldete sehen ihn nicht, alle anderen nur den Hinweis zur Administrator-Anmeldung.
         }
       }
-      if (!admin) { mode.textContent = (simulation ? 'SIMULATION · ' : '') + 'Batteriestand und Reichweiten'; adminLink.hidden = !secure.hidden; await status(); setInterval(() => { if (!busy) status().catch(() => {}); }, 15000); return; }
+      if (!admin) { mode.textContent = (simulation ? 'SIMULATION · ' : '') + 'Batteriestand und Reichweiten'; adminLink.hidden = !secure.hidden; await status(); setInterval(() => { if (!busy && !document.hidden) status().catch(() => {}); }, 15000); return; }
       const s = await call('jeepSession'); simulation = s.simulation === true; loginAllowed = s.loginAllowed !== false;
       mode.textContent = simulation ? 'SIMULATION – keine Verbindung zum Fahrzeug' : s.localConnectionTest ? 'Jeep-Lesetest auf diesem PC' : 'Jeep-Fahrzeugdaten · nur Lesezugriff';
       mode.className = 'notice' + (simulation ? ' warn' : '');

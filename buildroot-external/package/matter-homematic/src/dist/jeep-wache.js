@@ -154,7 +154,9 @@ class Wache {
     let laden = null; try { laden = require('./jeep-laden')._test.laden(this.web).status(); } catch {}
     return { settings: s, ladeplatz: !!ladeplatz(this.web), whatsapp: !!this.web.security?.monitor,
       vehicles: this.rows().map((r, i, all) => ({ name: all.length > 1 ? 'Jeep Fahrzeug ' + (i + 1) : 'Jeep', updatedAt: r.vehicleUpdatedAt || null, ...(health(r) || { odometerKm: null, serviceKm: null, serviceDays: null, tyres: [] }), lockedConfirmed: (() => { try { const c = require('./jeep-schloss').lastConfirmed(JM.vehicleId(r.vin)); return c ? { locked: c.value === 1, at: new Date(c.at).toISOString() } : null; } catch { return null; } })() })),
-      costs: laden ? { priceEur: laden.settings?.priceEur ?? null, months: (laden.months || []).slice(0, 12) } : null, log: this.state.log.slice().reverse() };
+      costs: laden ? { priceEur: laden.settings?.priceEur ?? null, months: (laden.months || []).slice(0, 12),
+        // einzelne Ladungen fürs Verbrauchsdiagramm der Jeep-Seite (Wunsch Thomas 13.10.2026), nur die Diagrammfelder
+        sessions: (laden.sessions || []).slice(0, 15).map(x => ({ start: x.start, kWh: x.kWh, batteryKWh: x.batteryKWh, socStart: x.socStart, socEnd: x.socEnd, costEur: x.costEur })) } : null, log: this.state.log.slice().reverse() };
   }
 }
 const instances = new WeakMap();

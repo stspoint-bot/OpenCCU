@@ -10,7 +10,9 @@ const fail = (m, s = 400) => Object.assign(Error(m), { status: s });
 const isObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const paths = web => ({ ...DEFAULT_PATHS, ...(web?.deps?.timePaths || {}) });
 const TZ_NAME = /^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+){0,2}$/, HOST = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*$/;
-const TEXT = /^[^\x00-\x1f\x7f'"\\=]{0,64}$/;
+// Nur Namenszeichen (Sicherheitsdurchgang 13.10.2026): time.conf kann von Shell-Skripten der CCU eingelesen werden – daher
+// auch kein $, `, ;, & oder | (vorher nur Anführungszeichen/Steuerzeichen gesperrt).
+const TEXT = /^[\p{L}\p{M}\p{N} .,()\/-]{0,64}$/u;
 
 function readTime(file) {
   let t = ''; try { t = fs.readFileSync(file, 'latin1'); } catch {}

@@ -259,5 +259,48 @@
     if (onClick) b.addEventListener('click', onClick);
     return b;
   }
-  window.NEU = { h, icon, powerButton, msg, api, ensureSession, events, task, remembered, forget, confirmDialog, shell, panel, field, check, toggle, stat, table, qrSvg, fmtDuration, fmtDate, MENU };
+  // Jeep-Ladediagramme (gemeinsam für Automationen → „Jeep laden“ und die Jeep-Seite, Wunsch Thomas 13.10.2026)
+  const kw = v => v === null || v === undefined ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Ladungen als Säulen: kWh aus der Steckdose (Tasmota), darin heller die geschätzten kWh im Akku; Kosten darüber; letzte 15 Ladungen
+  function jeepLadungenChart(sessions) {
+    const list = sessions.filter(x => Number.isFinite(x.kWh) && x.kWh > 0).slice(0, 15).reverse(); if (!list.length) return null;
+    const ns = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt !== undefined) e.textContent = txt; return e; };
+    const W = 720, H = 240, L = 44, R = 10, T = 30, B = 34, max = Math.max(...list.map(x => x.kWh), 1), step = (W - L - R) / list.length, bw = Math.min(40, step * 0.62);
+    const y = v => T + (1 - v / max) * (H - T - B), svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Jeep Ladungen: Energie und Kosten', style: 'width:100%;height:auto' });
+    for (let i = 0; i <= 4; i++) { const v = max * i / 4, yy = y(v); svg.append(el('line', { x1: L, x2: W - R, y1: yy, y2: yy, stroke: '#e3e9e6' }), el('text', { x: L - 6, y: yy + 3, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, v.toLocaleString('de-DE', { maximumFractionDigits: 1 }))); }
+    svg.append(el('text', { x: L - 6, y: T - 14, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, 'kWh'));
+    list.forEach((x, i) => {
+      const cx = L + step * i + step / 2, top = y(x.kWh), d = new Date(x.start), bat = Number.isFinite(x.batteryKWh) ? Math.min(x.batteryKWh, x.kWh) : null;
+      const bar = el('rect', { x: cx - bw / 2, y: top, width: bw, height: Math.max(0, H - B - top), rx: 3, fill: '#176c60' });
+      bar.append(el('title', {}, d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) + ': ' + kw(x.kWh) + ' kWh aus der Steckdose' + (bat !== null ? ', ≈ ' + kw(bat) + ' kWh im Akku (geschätzt)' : '') + (Number.isFinite(x.socStart) && Number.isFinite(x.socEnd) ? ', Akku ' + x.socStart + ' % → ' + x.socEnd + ' %' : '') + (x.costEur !== null && x.costEur !== undefined ? ', ' + kw(x.costEur) + ' €' : '')));
+      svg.append(bar);
+      if (bat !== null) svg.append(el('rect', { x: cx - bw / 2 + 4, y: y(bat), width: Math.max(2, bw - 8), height: Math.max(0, H - B - y(bat)), rx: 2, fill: '#8fc3b9' }));
+      if (x.costEur !== null && x.costEur !== undefined) svg.append(el('text', { x: cx, y: top - 4, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 600, fill: '#176c60' }, kw(x.costEur) + ' €'));
+      svg.append(el('text', { x: cx, y: H - 14, 'text-anchor': 'middle', 'font-size': 10, fill: '#738487' }, d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })));
+    });
+    const sum = list.reduce((a, x) => a + x.kWh, 0), cost = list.reduce((a, x) => a + (x.costEur || 0), 0);
+    return h('div', { class: 'card', style: 'margin-bottom:12px' }, h('div', { class: 'card-head' }, h('b', { text: 'Ladungen: Energie und Kosten' }), h('span', { class: 'muted', text: list.length + (list.length === 1 ? ' Ladung' : ' Ladungen') + ': ' + kw(sum) + ' kWh · ' + kw(cost) + ' €' })), svg,
+      h('p', { class: 'muted', text: 'Dunkel: aus der Steckdose (Tasmota, gemessen). Hell: davon im Akku angekommen (geschätzt aus dem Akkustand des Jeep). Über der Säule die Kosten. Mit der Maus auf eine Säule zeigen für Details.' }));
+  }
+  // Monatsverbrauch als Säulen (kWh), Kosten darüber; letzte 12 Monate, laufender Monat heller (eigene SVG-Grafik wie „Diagramme“)
+  function jeepMonatChart(months) {
+    const list = months.slice(0, 12).reverse(); if (!list.length) return null;
+    const ns = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt !== undefined) e.textContent = txt; return e; };
+    const W = 720, H = 240, L = 44, R = 10, T = 30, B = 34, max = Math.max(...list.map(m => m.kWh), 1), step = (W - L - R) / list.length, bw = Math.min(46, step * 0.62), cur = new Date().toISOString().slice(0, 7);
+    const y = v => T + (1 - v / max) * (H - T - B), svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Jeep Monatsverbrauch und Kosten', style: 'width:100%;height:auto' });
+    for (let i = 0; i <= 4; i++) { const v = max * i / 4, yy = y(v); svg.append(el('line', { x1: L, x2: W - R, y1: yy, y2: yy, stroke: '#e3e9e6' }), el('text', { x: L - 6, y: yy + 3, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, v.toLocaleString('de-DE', { maximumFractionDigits: v < 10 ? 1 : 0 }))); }
+    svg.append(el('text', { x: L - 6, y: T - 14, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, 'kWh'));
+    list.forEach((m, i) => {
+      const cx = L + step * i + step / 2, top = y(m.kWh), running = m.month === cur;
+      svg.append(el('rect', { x: cx - bw / 2, y: top, width: bw, height: Math.max(0, H - B - top), rx: 3, fill: running ? '#8fc3b9' : '#176c60' }, undefined));
+      svg.lastChild.append(el('title', {}, m.month.slice(5) + '/' + m.month.slice(0, 4) + ': ' + kw(m.kWh) + ' kWh' + (m.costEur !== null ? ', ' + kw(m.costEur) + ' €' : '') + (running ? ' (laufender Monat)' : '')));
+      svg.append(el('text', { x: cx, y: top - 14, 'text-anchor': 'middle', 'font-size': 10, fill: '#22312d' }, kw(m.kWh) + ' kWh'));
+      if (m.costEur !== null) svg.append(el('text', { x: cx, y: top - 3, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 600, fill: '#176c60' }, kw(m.costEur) + ' €'));
+      svg.append(el('text', { x: cx, y: H - 14, 'text-anchor': 'middle', 'font-size': 10, fill: '#738487' }, m.month.slice(5) + '/' + m.month.slice(2, 4)));
+    });
+    const sum = list.reduce((a, m) => a + m.kWh, 0), cost = list.reduce((a, m) => a + (m.costEur || 0), 0);
+    return h('div', { class: 'card', style: 'margin-bottom:12px' }, h('div', { class: 'card-head' }, h('b', { text: 'Verbrauch und Kosten je Monat' }), h('span', { class: 'muted', text: list.length + (list.length === 1 ? ' Monat' : ' Monate') + ': ' + kw(sum) + ' kWh · ' + kw(cost) + ' €' })), svg,
+      h('p', { class: 'muted', text: 'Gemessen an der Jeep-Steckdose (Tasmota). Kosten mit dem eingestellten Strompreis; der laufende Monat ist heller.' }));
+  }
+  window.NEU = { h, icon, powerButton, jeepLadungenChart, jeepMonatChart, msg, api, ensureSession, events, task, remembered, forget, confirmDialog, shell, panel, field, check, toggle, stat, table, qrSvg, fmtDuration, fmtDate, MENU };
 })();

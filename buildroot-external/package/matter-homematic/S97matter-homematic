@@ -38,6 +38,7 @@ start() {
   if running; then return 0; fi
   rm -f "$PIDFILE"
   mkdir -p "${DATA_DIR}"
+  chmod 0700 "${DATA_DIR}" 2>/dev/null   # Datenordner enthaelt Konfiguration/Geheimnisse: nur root
   cd "${DATA_DIR}" || return 1
   [ ! -f "${DATA_DIR}/startup.log" ] || mv -f "${DATA_DIR}/startup.log" "${DATA_DIR}/startup.previous.log"
   : > "${DATA_DIR}/startup.log"

@@ -6,7 +6,7 @@
 // Zustand wie py-uconnect: doors.driver/passenger/leftRear/rightRear.status == 'LOCKED' im Fahrzeugstatus.
 const LOCKED = 1, UNLOCKED = 2, NOT_FULLY = 0;
 const DOORS = ['driver', 'passenger', 'leftRear', 'rightRear'];
-// Türstatus wie in der Jeep-App: /remote/status (jeep-cloud remoteStatus) – sparsam alle 15 min und einmal 90 s nach einem
+// Türstatus wie in der Jeep-App: /remote/status (jeep-cloud remoteStatus) – sparsam (Takt siehe start) und einmal 90 s nach einem
 // Tür-Befehl; nur lesen. Ergebnis je Fahrzeug (VIN) im Speicher.
 const remote = new Map(); let timer = null, webRef = null, servicesLogged = false;
 // Sparen (12.10.2026): Thomas' Jeep liefert keinen Türstatus (v1 leer, v2 404). Nach 3 Läufen ohne Türstatus fragt der
@@ -39,7 +39,9 @@ async function refresh(web = webRef, { timer = false } = {}) {
   }
   empty = found ? 0 : empty + 1;
 }
-function start(web, every = 900000) { webRef = web; loadConfirmed(); if (timer) return; setTimeout(() => refresh().catch(() => {}), 60000).unref?.(); timer = setInterval(() => refresh(webRef, { timer: true }).catch(() => {}), every); timer.unref?.(); }
+// Takt 5 min (Wunsch Thomas 13.10.2026, vorher 15 min): liest nur die Befehlsrückmeldungen (RDL/RDU, auch aus der Jeep-App) –
+// die leere /remote/status-Abfrage bleibt durch due() bei höchstens alle 6 h
+function start(web, every = 300000) { webRef = web; loadConfirmed(); if (timer) return; setTimeout(() => refresh().catch(() => {}), 60000).unref?.(); timer = setInterval(() => refresh(webRef, { timer: true }).catch(() => {}), every); timer.unref?.(); }
 function soon(ms = 90000) { setTimeout(() => refresh().catch(() => {}), ms).unref?.(); }
 let logged = false;
 function state(row) {
