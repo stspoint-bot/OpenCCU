@@ -32,7 +32,8 @@ prepare() { mkdir -p "$DIR" && chmod 0700 "$DIR" && : > "${DIR}/.nobackup" && ch
 umount_all() { n=0; while [ "$(mounts)" -gt 0 ] && [ $n -lt 20 ]; do umount -l "$MP" 2>/dev/null; n=$((n + 1)); done; }
 
 mount_once() {
-  configured || return 0
+  # Ohne Konfiguration (z. B. nach dem Abschalten in der Oberflaeche): aushaengen und fertig.
+  configured || { umount_all; return 0; }
   prepare
   # shellcheck disable=SC1090
   . "$CONF"
