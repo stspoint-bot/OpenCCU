@@ -1,0 +1,79 @@
+#!/bin/sh
+# shellcheck shell=dash disable=SC2169
+#
+# Netzspeicher (WD/NAS per SMB) fest im System: einhaengen, ueberwachen, bei Haengern neu einhaengen.
+# Konfiguration (von der Matter-Oberflaeche geschrieben, ueberlebt Image-Updates):
+#   /usr/local/etc/config/netzspeicher/netzspeicher.conf   HOST=..  SHARE=..  [VERS=3.0]  [DOMAIN=..]
+#   /usr/local/etc/config/netzspeicher/credentials          username=..  password=..  (Modus 0600, mount.cifs-Format)
+# Nichts Boot-Kritisches liegt auf dem Netzspeicher; ohne Konfiguration oder bei ausgeschaltetem NAS passiert nichts.
+# Aufrufe: start | stop | restart | remount | check | status
+#
+CONF=${NETZSPEICHER_CONF:-/usr/local/etc/config/netzspeicher/netzspeicher.conf}
+CRED=${NETZSPEICHER_CRED:-/usr/local/etc/config/netzspeicher/credentials}
+MP=${NETZSPEICHER_MP:-/media/ccu3-netzspeicher}
+RUN=${NETZSPEICHER_RUN:-/var/run/netzspeicher}
+PAUSE=${RUN}/pause-bis        # Auth-Fehler: 6 Stunden nicht erneut versuchen (Sperren des Kontos vermeiden)
+LAST=${RUN}/letzter-versuch   # sonst frueheste Wiederholung nach 5 Minuten (Backoff)
+AUTH_PAUSE=21600
+RETRY_GAP=300
+
+log() { logger -t netzspeicher "$*" 2>/dev/null; [ -n "$NETZSPEICHER_DEBUG" ] && echo "netzspeicher: $*"; return 0; }
+configured() { [ -f "$CONF" ] && [ -f "$CRED" ]; }
+now() { cut -d. -f1 /proc/uptime; }   # Sekunden seit Start (monoton, unabhaengig von der Uhr)
+mounts() { grep -c " ${MP} cifs " /proc/mounts 2>/dev/null; }
+responsive() { timeout 10 stat -f "$MP" >/dev/null 2>&1; }
+paused() { [ -f "$PAUSE" ] && [ "$(now)" -lt "$(cat "$PAUSE" 2>/dev/null || echo 0)" ]; }
+
+umount_all() { n=0; while [ "$(mounts)" -gt 0 ] && [ $n -lt 20 ]; do umount -l "$MP" 2>/dev/null; n=$((n + 1)); done; }
+
+mount_once() {
+  configured || return 0
+  # shellcheck disable=SC1090
+  . "$CONF"
+  [ -n "$HOST" ] && [ -n "$SHARE" ] || { log "HOST/SHARE fehlen in $CONF"; return 1; }
+  mkdir -p "$RUN" "$MP"
+  now > "$LAST"
+  umount_all
+  OPTS="credentials=${CRED},soft,noserverino,nounix,file_mode=0600,dir_mode=0700,echo_interval=10,actimeo=30"
+  [ -n "$DOMAIN" ] && OPTS="${OPTS},domain=${DOMAIN}"
+  rc=1
+  for v in "${VERS:-3.0}" 2.1; do
+    out=$(timeout 40 mount -t cifs "//${HOST}/${SHARE}" "$MP" -o "${OPTS},vers=${v}" 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then log "eingehaengt (SMB ${v})"; return 0; fi
+    case "$out" in *"error(13)"*|*"Permission denied"*|*"LOGON_FAILURE"*) break;; esac
+  done
+  case "$out" in
+    *"error(13)"*|*"Permission denied"*|*"LOGON_FAILURE"*)
+      echo $(( $(now) + AUTH_PAUSE )) > "$PAUSE"; log "Anmeldung abgelehnt - 6 h Pause (Zugangsdaten pruefen)";;
+    *) log "mount fehlgeschlagen: $(echo "$out" | tail -n 1)";;
+  esac
+  return 1
+}
+
+check() {
+  configured || return 0
+  mkdir -p "$RUN"
+  paused && return 0
+  unlink "$PAUSE" 2>/dev/null   # abgelaufene Pause aufraeumen
+  if [ "$(mounts)" -eq 1 ] && responsive; then return 0; fi
+  # nicht eingehaengt, doppelt eingehaengt oder haengt: hoechstens alle 5 Minuten neu versuchen
+  [ -f "$LAST" ] && [ "$(( $(now) - $(cat "$LAST" 2>/dev/null || echo 0) ))" -lt "$RETRY_GAP" ] && return 0
+  now > "$LAST"
+  [ "$(mounts)" -gt 0 ] && log "Freigabe haengt/doppelt - neu einhaengen"
+  mount_once
+  return 0
+}
+
+case "$1" in
+  start)   ( unlink "$PAUSE" 2>/dev/null; unlink "$LAST" 2>/dev/null; check ) >/dev/null 2>&1 & ;;   # im Hintergrund: der Start wartet nie auf das NAS
+  stop)    umount_all ;;
+  restart|remount) unlink "$PAUSE" 2>/dev/null; unlink "$LAST" 2>/dev/null; mkdir -p "$RUN"; mount_once; exit $? ;;
+  check)   check ;;
+  status)
+    configured || { echo "nicht konfiguriert"; exit 3; }
+    paused && { echo "pausiert (Anmeldung abgelehnt)"; exit 2; }
+    if [ "$(mounts)" -eq 1 ] && responsive; then echo "verbunden"; exit 0; fi
+    echo "nicht verbunden"; exit 1;;
+  *) echo "Usage: $0 {start|stop|restart|remount|check|status}" >&2; exit 1;;
+esac
+exit 0

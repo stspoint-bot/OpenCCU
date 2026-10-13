@@ -1,0 +1,5 @@
+# Netzspeicher-Wächter: alle ~65 s (5 Zyklen) prüfen, ob die Freigabe eingehängt ist und antwortet; sonst (höchstens alle 5 Min.) neu einhängen.
+check program netzspeicher with path "/etc/init.d/S96netzspeicher check" with timeout 120 seconds
+    group addons
+    every 5 cycles
+    if status != 0 for 3 cycles then alert

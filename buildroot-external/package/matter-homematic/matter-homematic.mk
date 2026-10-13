@@ -21,11 +21,14 @@ define MATTER_HOMEMATIC_INSTALL_TARGET_CMDS
 		$(@D)/THIRD-PARTY-LICENSES.txt $(@D)/DISTRIBUTION-SBOM.json $(@D)/RUNTIME-PROVENANCE.json \
 		$(@D)/JEEP-UPSTREAM-LICENSE.txt $(@D)/JEEP-UPSTREAM-NOTICE.txt $(TARGET_DIR)/usr/lib/matter-homematic/
 	$(INSTALL) -D -m 0644 $(MATTER_HOMEMATIC_PKGDIR)/matter-homematic.monit $(TARGET_DIR)/etc/monit.d/matter-homematic.cfg
+	$(INSTALL) -D -m 0644 $(MATTER_HOMEMATIC_PKGDIR)/netzspeicher.monit $(TARGET_DIR)/etc/monit.d/netzspeicher.cfg
 endef
 
 define MATTER_HOMEMATIC_INSTALL_INIT_SYSV
 	$(INSTALL) -D -m 0755 $(MATTER_HOMEMATIC_PKGDIR)/S97matter-homematic \
 		$(TARGET_DIR)/etc/init.d/S97matter-homematic
+	$(INSTALL) -D -m 0755 $(MATTER_HOMEMATIC_PKGDIR)/S96netzspeicher \
+		$(TARGET_DIR)/etc/init.d/S96netzspeicher
 endef
 
 # Reste der alten Weboberflaeche aus dem Abbild entfernen (nach der Installation aller Pakete)
