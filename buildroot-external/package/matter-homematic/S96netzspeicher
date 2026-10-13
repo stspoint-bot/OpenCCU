@@ -3,13 +3,16 @@
 #
 # Netzspeicher (WD/NAS per SMB) fest im System: einhaengen, ueberwachen, bei Haengern neu einhaengen.
 # Konfiguration (von der Matter-Oberflaeche geschrieben, ueberlebt Image-Updates):
-#   /usr/local/etc/config/netzspeicher/netzspeicher.conf   HOST=..  SHARE=..  [VERS=3.0]  [DOMAIN=..]
-#   /usr/local/etc/config/netzspeicher/credentials          username=..  password=..  (Modus 0600, mount.cifs-Format)
+#   /usr/local/etc/netzspeicher/netzspeicher.conf          HOST=..  SHARE=..  [VERS=3.0]  [DOMAIN=..]
+#   /usr/local/etc/netzspeicher/credentials                 username=..  password=..  (Modus 0600, mount.cifs-Format)
 # Nichts Boot-Kritisches liegt auf dem Netzspeicher; ohne Konfiguration oder bei ausgeschaltetem NAS passiert nichts.
-# Aufrufe: start | stop | restart | remount | check | status
+# Aufrufe: prepare | start | stop | restart | remount | check | status
 #
-CONF=${NETZSPEICHER_CONF:-/usr/local/etc/config/netzspeicher/netzspeicher.conf}
-CRED=${NETZSPEICHER_CRED:-/usr/local/etc/config/netzspeicher/credentials}
+# Verzeichnis enthaelt eine Datei ".nobackup": createBackup.sh (tar --exclude-tag=.nobackup) nimmt den Inhalt NICHT in die
+# CCU-Sicherung (.sbk) auf, also auch nicht in Kopien ausser Haus. Aufruf "prepare" legt Verzeichnis (0700) und Marker an.
+DIR=${NETZSPEICHER_DIR:-/usr/local/etc/netzspeicher}
+CONF=${NETZSPEICHER_CONF:-${DIR}/netzspeicher.conf}
+CRED=${NETZSPEICHER_CRED:-${DIR}/credentials}
 MP=${NETZSPEICHER_MP:-/media/ccu3-netzspeicher}
 RUN=${NETZSPEICHER_RUN:-/var/run/netzspeicher}
 PAUSE=${RUN}/pause-bis        # Auth-Fehler: 6 Stunden nicht erneut versuchen (Sperren des Kontos vermeiden)
@@ -24,10 +27,13 @@ mounts() { grep -c " ${MP} cifs " /proc/mounts 2>/dev/null; }
 responsive() { timeout 10 stat -f "$MP" >/dev/null 2>&1; }
 paused() { [ -f "$PAUSE" ] && [ "$(now)" -lt "$(cat "$PAUSE" 2>/dev/null || echo 0)" ]; }
 
+prepare() { mkdir -p "$DIR" && chmod 0700 "$DIR" && : > "${DIR}/.nobackup" && chmod 0600 "${DIR}/.nobackup"; }
+
 umount_all() { n=0; while [ "$(mounts)" -gt 0 ] && [ $n -lt 20 ]; do umount -l "$MP" 2>/dev/null; n=$((n + 1)); done; }
 
 mount_once() {
   configured || return 0
+  prepare
   # shellcheck disable=SC1090
   . "$CONF"
   [ -n "$HOST" ] && [ -n "$SHARE" ] || { log "HOST/SHARE fehlen in $CONF"; return 1; }
@@ -69,11 +75,12 @@ case "$1" in
   stop)    umount_all ;;
   restart|remount) unlink "$PAUSE" 2>/dev/null; unlink "$LAST" 2>/dev/null; mkdir -p "$RUN"; mount_once; exit $? ;;
   check)   check ;;
+  prepare) prepare ;;
   status)
     configured || { echo "nicht konfiguriert"; exit 3; }
     paused && { echo "pausiert (Anmeldung abgelehnt)"; exit 2; }
     if [ "$(mounts)" -eq 1 ] && responsive; then echo "verbunden"; exit 0; fi
     echo "nicht verbunden"; exit 1;;
-  *) echo "Usage: $0 {start|stop|restart|remount|check|status}" >&2; exit 1;;
+  *) echo "Usage: $0 {prepare|start|stop|restart|remount|check|status}" >&2; exit 1;;
 esac
 exit 0
