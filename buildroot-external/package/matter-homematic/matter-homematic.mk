@@ -28,4 +28,10 @@ define MATTER_HOMEMATIC_INSTALL_INIT_SYSV
 		$(TARGET_DIR)/etc/init.d/S97matter-homematic
 endef
 
+# Reste der alten Weboberflaeche aus dem Abbild entfernen (nach der Installation aller Pakete)
+define MATTER_HOMEMATIC_REMOVE_OLD_UI
+	sh $(MATTER_HOMEMATIC_PKGDIR)/remove-old-ui.sh $(TARGET_DIR) $(MATTER_HOMEMATIC_PKGDIR)/ccu3-neu-startet.html
+endef
+TARGET_FINALIZE_HOOKS += MATTER_HOMEMATIC_REMOVE_OLD_UI
+
 $(eval $(generic-package))
