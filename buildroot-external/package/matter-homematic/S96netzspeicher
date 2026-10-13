@@ -3,10 +3,14 @@
 #
 # Netzspeicher (WD/NAS per SMB) fest im System: einhaengen, ueberwachen, bei Haengern neu einhaengen.
 # Konfiguration (von der Matter-Oberflaeche geschrieben, ueberlebt Image-Updates):
-#   /usr/local/etc/netzspeicher/netzspeicher.conf          HOST=..  SHARE=..  [VERS=3.0]  [DOMAIN=..]
+#   /usr/local/etc/netzspeicher/netzspeicher.conf          HOST=..  SHARE=..  [VERS="3.1.1 3.0"]  [SEAL=1|0]  [ALLOW_LEGACY=0|1]  [DOMAIN=..]
 #   /usr/local/etc/netzspeicher/credentials                 username=..  password=..  (Modus 0600, mount.cifs-Format)
+# Sicherheit (Standard): nur SMB 3.1.1 / 3.0 (kein SMB 2.1 ohne ALLOW_LEGACY=1, kein SMB 1), Verschluesselung (seal) und Signierung (sign)
+# Pflicht, nosuid/nodev/noexec. Wird das nicht ausgehandelt, schlaegt das Einhaengen fehl (Status "nicht verbunden", Grund in
+# ${RUN}/status-detail) statt stillschweigend unverschluesselt zu laufen. Der Speicher ist austauschbar: nur HOST/SHARE/Zugangsdaten
+# aendern (jedes SMB3-faehige NAS, Windows-Freigabe oder Samba-Server).
 # Nichts Boot-Kritisches liegt auf dem Netzspeicher; ohne Konfiguration oder bei ausgeschaltetem NAS passiert nichts.
-# Aufrufe: prepare | start | stop | restart | remount | check | status
+# Aufrufe: prepare | start | stop | restart | remount | check | status | info | selftest
 #
 # Verzeichnis enthaelt eine Datei ".nobackup": createBackup.sh (tar --exclude-tag=.nobackup) nimmt den Inhalt NICHT in die
 # CCU-Sicherung (.sbk) auf, also auch nicht in Kopien ausser Haus. Aufruf "prepare" legt Verzeichnis (0700) und Marker an.
@@ -17,6 +21,7 @@ MP=${NETZSPEICHER_MP:-/media/ccu3-netzspeicher}
 RUN=${NETZSPEICHER_RUN:-/var/run/netzspeicher}
 PAUSE=${RUN}/pause-bis        # Auth-Fehler: 6 Stunden nicht erneut versuchen (Sperren des Kontos vermeiden)
 LAST=${RUN}/letzter-versuch   # sonst frueheste Wiederholung nach 5 Minuten (Backoff)
+DETAIL=${RUN}/status-detail   # ok SMB <Version> seal=<0|1>  oder  fehler: <Meldung>
 AUTH_PAUSE=21600
 RETRY_GAP=300
 
@@ -41,12 +46,19 @@ mount_once() {
   mkdir -p "$RUN" "$MP"
   now > "$LAST"
   umount_all
-  OPTS="credentials=${CRED},soft,noserverino,nounix,file_mode=0600,dir_mode=0700,echo_interval=10,actimeo=30"
+  OPTS="credentials=${CRED},soft,noserverino,nounix,file_mode=0600,dir_mode=0700,echo_interval=10,actimeo=30,nosuid,nodev,noexec,sign"
+  [ "${SEAL:-1}" = "1" ] && OPTS="${OPTS},seal"
   [ -n "$DOMAIN" ] && OPTS="${OPTS},domain=${DOMAIN}"
+  VL="${VERS:-3.1.1 3.0}"
+  [ "${ALLOW_LEGACY:-0}" = "1" ] && VL="${VL} 2.1"
   rc=1
-  for v in "${VERS:-3.0}" 2.1; do
+  for v in $VL; do
     out=$(timeout 40 mount -t cifs "//${HOST}/${SHARE}" "$MP" -o "${OPTS},vers=${v}" 2>&1); rc=$?
-    if [ $rc -eq 0 ]; then log "eingehaengt (SMB ${v})"; return 0; fi
+    if [ $rc -eq 0 ]; then
+      log "eingehaengt (SMB ${v}, seal=${SEAL:-1})"
+      echo "ok SMB ${v} seal=${SEAL:-1}" > "$DETAIL"
+      return 0
+    fi
     case "$out" in *"error(13)"*|*"Permission denied"*|*"LOGON_FAILURE"*) break;; esac
   done
   case "$out" in
@@ -54,6 +66,7 @@ mount_once() {
       echo $(( $(now) + AUTH_PAUSE )) > "$PAUSE"; log "Anmeldung abgelehnt - 6 h Pause (Zugangsdaten pruefen)";;
     *) log "mount fehlgeschlagen: $(echo "$out" | tail -n 1)";;
   esac
+  echo "fehler: $(echo "$out" | tail -n 1)" > "$DETAIL"
   return 1
 }
 
@@ -71,17 +84,34 @@ check() {
   return 0
 }
 
+# Kleiner Funktionstest (1 winzige Datei): schreiben, zuruecklesen, vergleichen, wieder loeschen.
+selftest() {
+  [ "$(mounts)" -eq 1 ] && responsive || { echo "nicht verbunden"; return 1; }
+  f="${MP}/.selftest-$$"
+  p="$(now)-$$"
+  if echo "$p" > "$f" && [ "$(cat "$f")" = "$p" ]; then
+    unlink "$f" 2>/dev/null
+    echo "ok (schreiben/lesen/loeschen)"
+    return 0
+  fi
+  unlink "$f" 2>/dev/null
+  echo "FEHLER beim Schreib-/Lesetest"
+  return 1
+}
+
 case "$1" in
   start)   ( unlink "$PAUSE" 2>/dev/null; unlink "$LAST" 2>/dev/null; check ) >/dev/null 2>&1 & ;;   # im Hintergrund: der Start wartet nie auf das NAS
   stop)    umount_all ;;
   restart|remount) unlink "$PAUSE" 2>/dev/null; unlink "$LAST" 2>/dev/null; mkdir -p "$RUN"; mount_once; exit $? ;;
   check)   check ;;
   prepare) prepare ;;
+  info)    grep -iE "Dialect|Encryption|SecMode" /proc/fs/cifs/DebugData 2>/dev/null; cat "$DETAIL" 2>/dev/null ;;
+  selftest) selftest; exit $? ;;
   status)
     configured || { echo "nicht konfiguriert"; exit 3; }
     paused && { echo "pausiert (Anmeldung abgelehnt)"; exit 2; }
     if [ "$(mounts)" -eq 1 ] && responsive; then echo "verbunden"; exit 0; fi
     echo "nicht verbunden"; exit 1;;
-  *) echo "Usage: $0 {prepare|start|stop|restart|remount|check|status}" >&2; exit 1;;
+  *) echo "Usage: $0 {prepare|start|stop|restart|remount|check|status|info|selftest}" >&2; exit 1;;
 esac
 exit 0

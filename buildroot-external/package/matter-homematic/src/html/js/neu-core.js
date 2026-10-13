@@ -16,7 +16,6 @@
     { label: 'Übersicht', href: '/index.html', icon: 'home' },
     { group: 'Zuhause', icon: 'rooms', items: [
       { label: 'Favoriten', href: '/favoriten.html' },
-      { label: 'Geräte', href: '/geraete.html' },
       { label: 'Räume', href: '/raeume.html' },
       { label: 'Gewerke', href: '/gewerke.html' },
       { label: 'Diagramme', href: '/diagramme.html' },
@@ -27,8 +26,8 @@
       { label: 'Direkte Verknüpfungen', href: '/verknuepfungen.html' }
     ] },
     { group: 'Geräte', icon: 'devices', items: [
+      { label: 'Alle Geräte', href: '/geraete.html' },
       { label: 'Neues Gerät anlernen', href: '/anlernen.html' },
-      { label: 'Geräteverwaltung', href: '/geraeteverwaltung.html' },
       { label: 'Gerätemeldungen', href: '/zentrale.html' },
       { label: 'Apple Home (Matter)', href: '/apple-home.html' }
     ] },
@@ -40,8 +39,7 @@
       { label: 'Systemzustand', href: '/systemzustand.html' },
       { label: 'Sicherung & Wiederherstellung', href: '/backup-storage.html' },
       { label: 'Benachrichtigungen', href: '/services.html' },
-      { label: 'Wartung & Neustart', href: '/maintenance.html' },
-      { label: 'Einrichtung (neue CCU3)', href: '/einrichtung.html' }
+      { label: 'Wartung & Neustart', href: '/maintenance.html' }
     ] },
     { group: 'Zugang & Sicherheit', icon: 'lock', items: [
       { label: 'Benutzer & Konto', href: '/konto.html' },
@@ -54,7 +52,8 @@
       { label: 'Verbindung zur CCU', href: '/verbindung.html' },
       { label: 'CCU-Schnittstellen & Diagnose', href: '/diagnostics.html' },
       { label: 'Netzwerk', href: '/netzwerk.html' },
-      { label: 'Zeit & Standort', href: '/zeit.html' }
+      { label: 'Zeit & Standort', href: '/zeit.html' },
+      { label: 'Einrichtung (neue CCU3)', href: '/einrichtung.html' }
     ] },
     { label: 'Hilfe', href: '/hilfe.html', icon: 'help' }
   ];
@@ -210,7 +209,7 @@
       // Schon als Administrator angemeldet: Menüpunkt „Anmelden als Administrator“ ausblenden (Wunsch Thomas)
       if (s.admin) for (const a of nav.querySelectorAll('a[href="/login.html?admin=1"]')) a.hidden = true;
       // Bewohner/Gast (eigene Benutzer): nur Ansehen/Bedienen – Einstellungsseiten im Menü ausblenden (der Server sperrt sie ohnehin)
-      if (!s.admin && s.role) { const keep = new Set(['/hilfe.html', '/index.html', '/favoriten.html', '/wetter.html', '/geraete.html', '/geraeteverwaltung.html', '/raeume.html', '/diagramme.html', '/automationen.html', '/verknuepfungen.html', '/zentrale.html', '/konto.html']); for (const a of nav.querySelectorAll('a[href]')) if (!keep.has(a.getAttribute('href'))) a.hidden = true; for (const g of nav.querySelectorAll('details, .nav-group')) if (![...g.querySelectorAll('a[href]')].some(a => !a.hidden)) g.hidden = true; status.replaceChildren(h('span', { class: 'dot' }), 'Angemeldet als ' + (s.user || '') + (s.role === 'gast' ? ' (Gast)' : ' (Bewohner)')); }
+      if (!s.admin && s.role) { const keep = new Set(['/hilfe.html', '/index.html', '/favoriten.html', '/wetter.html', '/geraete.html', '/raeume.html', '/diagramme.html', '/automationen.html', '/verknuepfungen.html', '/zentrale.html', '/konto.html']); for (const a of nav.querySelectorAll('a[href]')) if (!keep.has(a.getAttribute('href'))) a.hidden = true; for (const g of nav.querySelectorAll('details, .nav-group')) if (![...g.querySelectorAll('a[href]')].some(a => !a.hidden)) g.hidden = true; status.replaceChildren(h('span', { class: 'dot' }), 'Angemeldet als ' + (s.user || '') + (s.role === 'gast' ? ' (Gast)' : ' (Bewohner)')); }
     }).catch(e => { status.replaceChildren(h('span', { class: 'dot red' }), e.message); });
     logout.addEventListener('click', async () => {
       logout.disabled = true;
@@ -245,5 +244,20 @@
   const fmtDuration = s => { s = Math.max(0, Math.round(Number(s) || 0)); const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? `${d} T ${hh} Std` : hh ? `${hh} Std ${m} Min` : `${m} Min`; };
   const fmtDate = v => { const d = new Date(v); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('de-DE'); };
 
-  window.NEU = { h, icon, msg, api, ensureSession, events, task, remembered, forget, confirmDialog, shell, panel, field, check, toggle, stat, table, qrSvg, fmtDuration, fmtDate, MENU };
+  // Schalt-Symbol statt Ein/Aus-Text (Wunsch Thomas 13.10.2026): Glühbirne (Licht), Stecker (Steckdose/Schalter), Ventilator (Dyson);
+  // an = farbig, aus = grau. Ein Knopf, Klick schaltet um. powerButton(art, an, beschriftung, beiKlick)
+  const POWER_D = {
+    licht: 'M12 2.5a6.5 6.5 0 0 0-3.9 11.7c.6.5.9 1.1.9 1.8v.5h6v-.5c0-.7.3-1.3.9-1.8A6.5 6.5 0 0 0 12 2.5ZM9 18.5h6v1a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1Z',
+    stecker: 'M8 2.5a1 1 0 0 1 1 1V7h6V3.5a1 1 0 1 1 2 0V7h1a1 1 0 0 1 1 1v3a6 6 0 0 1-5 5.9V20.5a1 1 0 1 1-2 0v-3.6A6 6 0 0 1 5 11V8a1 1 0 0 1 1-1h1V3.5a1 1 0 0 1 1-1Z',
+    luefter: 'M12 10.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6Zm.9-7.6c2.9 0 4.6 1.8 4 3.9-.4 1.4-1.8 2.3-3.4 2.6.3-1.6 0-3.6-.6-6.5Zm7.5 9.3c0 2.9-1.8 4.6-3.9 4-1.4-.4-2.3-1.8-2.6-3.4 1.6.3 3.6 0 6.5-.6Zm-9.3 7.5c-2.9 0-4.6-1.8-4-3.9.4-1.4 1.8-2.3 3.4-2.6-.3 1.6 0 3.6.6 6.5ZM3.6 12.1c0-2.9 1.8-4.6 3.9-4 1.4.4 2.3 1.8 2.6 3.4-1.6-.3-3.6 0-6.5.6Z',
+    an: 'M11 2.5h2v9h-2zM7.1 5.3l1.4 1.4A6.5 6.5 0 1 0 15.5 6.7l1.4-1.4A8.5 8.5 0 1 1 7.1 5.3Z'
+  };
+  function powerButton(art, on, label, onClick) {
+    const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'), p = document.createElementNS(ns, 'path');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); p.setAttribute('d', POWER_D[art] || POWER_D.an); svg.append(p);
+    const b = h('button', { class: 'pw-knopf ' + (on ? 'an' : 'aus') + ' pw-' + (POWER_D[art] ? art : 'an'), type: 'button', title: (label ? label + ' – ' : '') + (on ? 'an (klicken zum Ausschalten)' : 'aus (klicken zum Einschalten)'), 'aria-label': (label ? label + ' ' : '') + (on ? 'ausschalten' : 'einschalten'), 'aria-pressed': on ? 'true' : 'false' }, svg);
+    if (onClick) b.addEventListener('click', onClick);
+    return b;
+  }
+  window.NEU = { h, icon, powerButton, msg, api, ensureSession, events, task, remembered, forget, confirmDialog, shell, panel, field, check, toggle, stat, table, qrSvg, fmtDuration, fmtDate, MENU };
 })();

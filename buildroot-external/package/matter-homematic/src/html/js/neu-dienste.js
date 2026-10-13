@@ -1,10 +1,10 @@
 'use strict';
-// Seite „Dienste & WhatsApp“: Ausfallmeldung per CallMeBot, Geräte bewusst ohne Ausfallwarnung, Warnung bei falschen
-// Anmeldungen. Den Zustand der Dienste zeigt seit 13.10.2026 nur noch die Ampelseite „🚦 Systemzustand“ (Wunsch Thomas).
+// Seite „Benachrichtigungen“ (früher „Dienste & WhatsApp“): Ausfallmeldung per CallMeBot und Warnung bei falschen Anmeldungen.
+// Den Zustand der Dienste zeigt seit 13.10.2026 nur noch die Ampelseite „🚦 Systemzustand“ (Wunsch Thomas).
+// „Geräte ohne Ausfallwarnung“ ist seit 13.10.2026 entfernt: Meldungen schaltet man je Gerät in „Geräte (neu)“ (Wunsch Thomas).
 document.addEventListener('DOMContentLoaded', () => {
   const { h, api, shell, panel, field, check, msg, task, stat } = NEU;
   const main = shell({ title: 'Benachrichtigungen', eyebrow: 'System', crumb: 'System', lead: 'Die Bridge prüft etwa alle 30 Sekunden ihre Dienste und Geräte und kann dich bei einem Ausfall per WhatsApp informieren. Ob gerade alles läuft, zeigt die Ampel unter „🚦 Systemzustand“.' });
-  const rows = h('div', {}, h('div', { class: 'empty', text: 'Wird geladen …' }));
   const out = h('p', { class: 'msg', role: 'status' });
 
   const enabled = h('input', { type: 'checkbox' }), phone = h('input', { type: 'tel', placeholder: '+491…', maxlength: 16, autocomplete: 'tel' });
@@ -30,24 +30,17 @@ document.addEventListener('DOMContentLoaded', () => {
   main.append(
     panel('WhatsApp bei einem Ausfall', null,
       h('div', { class: 'notice warn' }, h('span', {}, 'Zuerst die Nummer bei ', h('a', { href: 'https://www.callmebot.com/blog/free-api-whatsapp-messages/', target: '_blank', rel: 'noopener noreferrer', text: 'CallMeBot' }), ' freischalten. Nummer, Meldung und Schlüssel werden beim Versand an CallMeBot übertragen.')),
-      form, result, delivery,
+      form, result, delivery, out,
+      h('p', { class: 'muted' }, 'Meldungen einzelner Geräte schaltest du in ', h('a', { href: '/geraete.html', text: '„Geräte“' }), ' beim jeweiligen Gerät ein oder aus (WhatsApp-Symbol im Kopf: grün = an, grau = aus).'),
       h('details', { class: 'more' }, h('summary', { text: 'Wann wird gemeldet?' }),
         h('p', { text: 'Standard: sofort nach der ersten fehlgeschlagenen Prüfung; optional mit Wartezeit. Pro Gerät höchstens ein automatischer Versand innerhalb von sechs Stunden. Ausfälle derselben Prüfung werden gebündelt.' }),
         h('p', { text: 'Bei einem vollständigen CCU-, Bridge- oder Internetausfall kann diese CCU nichts senden. Eine unabhängige Überwachung braucht ein zweites Gerät.' }))),
-    panel('Geräte ohne Ausfallwarnung', 'Geräte, die du bewusst ausschaltest (z. B. Steckdose im Winter), hier abhaken – dann kommt keine WhatsApp und die Ampel bleibt grün.', out, rows),
     panel('Warnung bei falschen Anmeldungen', 'Bei mehr als 10 falschen Anmeldungen an dieser Oberfläche innerhalb von 24 Stunden bekommst du eine WhatsApp-Nachricht an die oben gespeicherte Nummer.', loginWatch));
 
   let loaded = false, busy = false;
   async function load() {
     try {
       const d = await api('getServiceStatus', undefined, { errorField: false });
-      // Nur Geräte, deren Ausfallwarnung man abschalten darf (WLAN-/Integrationsgeräte), mit Häkchen
-      const ign = d.services.filter(r => r.canIgnoreWarning);
-      rows.replaceChildren(...(ign.length ? ign.map(row => {
-        const box = h('input', { type: 'checkbox', checked: row.warningIgnored === true });
-        box.addEventListener('change', async () => { box.disabled = true; try { await api('saveOfflineWarning', { id: row.id, ignored: box.checked }); await load(); } catch (e) { box.checked = !box.checked; msg(out, e.message, 'bad'); } finally { box.disabled = false; } });
-        return h('div', { class: 'row' }, check(row.name + ' – bewusst ausgeschaltet', box), row.status === 'offline' ? h('span', { class: 'tag ' + (row.warningIgnored ? '' : 'bad'), text: 'gerade offline' }) : null);
-      }) : [h('div', { class: 'empty', text: 'Keine Geräte, deren Ausfallwarnung man abschalten kann.' })]));
       if (d.error) msg(out, 'Prüfung fehlgeschlagen: ' + d.error, 'bad');
       if (!loaded) { enabled.checked = d.settings.enabled; phone.value = d.settings.phone || ''; delay.value = d.settings.delaySeconds; loaded = true; }
       keyState.textContent = d.settings.hasKey ? 'API-Schlüssel ist gespeichert.' : 'Noch kein API-Schlüssel gespeichert.';

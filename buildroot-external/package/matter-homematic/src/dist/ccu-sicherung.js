@@ -24,7 +24,10 @@ const wd = web => web.deps?.netzspeicher || require('./netzspeicher');
 const wdReady = web => { try { return !!wd(web).backupReady(web); } catch { return false; } };
 
 function readState(web) { try { const s = JSON.parse(fs.readFileSync(stateFile(web), 'utf8')); return s && typeof s === 'object' && !Array.isArray(s) ? s : {}; } catch { return {}; } }
-function writeState(web, s) { const f = stateFile(web), tmp = f + '.neu-' + process.pid; fs.writeFileSync(tmp, JSON.stringify(s), { mode: 0o600 }); fs.renameSync(tmp, f); }
+// .nobackup (Chat1 13.10.2026): Sicherungen gehören nicht in die nächste CCU-Sicherung (sonst wächst jede .sbk um alle älteren;
+// createBackup.sh lässt Ordner mit .nobackup aus). Bei jedem Schreiben des Zustands mit sicherstellen.
+function noBackup(web) { try { const m = path.join(dir(web), '.nobackup'); if (!fs.existsSync(m)) fs.writeFileSync(m, '', { mode: 0o600 }); } catch {} }
+function writeState(web, s) { noBackup(web); const f = stateFile(web), tmp = f + '.neu-' + process.pid; fs.writeFileSync(tmp, JSON.stringify(s), { mode: 0o600 }); fs.renameSync(tmp, f); }
 function run(web, file, args, timeout) {
   if (web.deps?.sicherungRun) return Promise.resolve(web.deps.sicherungRun(file, args));
   return new Promise(ok => {

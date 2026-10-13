@@ -58,7 +58,7 @@ p{margin:0 0 12px}
 .stat small{font-size:11px;color:#86968f}
 .stat.warn strong{color:var(--warn)}.stat.bad strong{color:var(--bad)}.stat.ok strong{color:#14634d}
 .tag{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:4px 10px;border-radius:15px;background:#f0f4f2;color:#506965;white-space:nowrap}
-.tag.ok{background:var(--green-soft);color:#14634d}.tag.warn{background:var(--warn-soft);color:var(--warn)}.tag.bad{background:var(--bad-soft);color:var(--bad)}
+.tag.ok{background:var(--green-soft);color:#14634d}.tag.home{background:#e7effb;color:#1f5aa6}.tag.warn{background:var(--warn-soft);color:var(--warn)}.tag.bad{background:var(--bad-soft);color:var(--bad)}
 .notice{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:8px;background:#edf4ee;border:1px solid #dce9dc;color:#44694e;font-size:13px;margin-bottom:16px}
 .notice.warn{background:var(--warn-soft);border-color:#ecd9a8;color:#7a5a12}.notice.bad{background:var(--bad-soft);border-color:#f3c9c4;color:var(--bad)}
 .msg{min-height:20px;font-size:13px;margin:10px 0 0}.msg.ok{color:#14634d}.msg.bad{color:var(--bad)}.msg.busy{color:var(--muted)}
@@ -303,3 +303,34 @@ body.mob .mob-wetter{padding:12px}
 .setup-list{display:grid;gap:10px}.setup-step{border:1px solid var(--line,#e3e8e6);border-radius:10px;padding:10px 12px}.setup-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.setup-step p{margin:6px 0}.setup-step code{word-break:break-all;font-size:.85em;flex:1}
 /* Sicherungs-Ueberblick */
 .ov-card .ov-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.ov-rows{display:grid;grid-template-columns:max-content 1fr;gap:3px 12px;margin:0}.ov-rows dt{color:var(--muted,#667);font-size:.9em}.ov-rows dd{margin:0;word-break:break-word}
+
+/* Geräte (neu): Bedienung & Apple Home im ausgeklappten Gerät */
+.gv-bedien{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:4px 0 14px;background:#f8fbf9}.gv-bedien h3{margin:0 0 6px}
+.gv-bedien-zeile{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 0;border-top:1px solid var(--line)}.gv-bedien-zeile:first-of-type{border-top:0}.gv-bedien-zeile>b{min-width:180px}
+.gv-home{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;flex:0 0 auto;margin-right:2px}.gv-home svg{width:14px;height:14px;fill:#fff}
+.gv-home.an{background:linear-gradient(160deg,#4f7cff,#7b4dff)}.gv-home.aus{background:#d4dbd9}
+.auto-note{display:block;flex-basis:100%;width:100%;margin:4px 0 0 18px;font-size:.88em;line-height:1.4;font-weight:400}
+.pw-knopf{display:inline-flex;align-items:center;justify-content:center;width:40px;height:34px;border-radius:10px;border:1px solid #d9e2df;background:#f4f7f6;cursor:pointer;padding:0}.pw-knopf svg{width:20px;height:20px;fill:#a7b3b0}
+.pw-knopf.an{background:#fff7dc;border-color:#f2c94c}.pw-knopf.an svg{fill:#e5a800}.pw-knopf.an.pw-stecker,.pw-knopf.an.pw-an,.pw-knopf.an.pw-luefter{background:#e3f5ea;border-color:#7fcf9c}.pw-knopf.an.pw-stecker svg,.pw-knopf.an.pw-an svg,.pw-knopf.an.pw-luefter svg{fill:#25a85a}
+.pw-knopf.mit-wert{width:auto;min-width:74px;gap:4px;padding:0 8px}.pw-wert{font-size:12px;font-weight:600;color:#22312d}.pw-knopf.aus .pw-wert{color:#738487}
+.pw-knopf.wartet{opacity:.6}.pw-knopf.fehler{border-color:#d23b3b}.gv-kopf-knopf .pw-knopf:not(.mit-wert){width:74px}
+.pw-knopf:disabled{opacity:.5;cursor:not-allowed}.pw-knopf:focus-visible{outline:2px solid #176c60;outline-offset:2px}
+.gv-symbole{order:98;margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding-left:8px}summary:has(.gv-symbole) .gv-kopf-knopf{margin-left:0}
+.gv-link{display:inline-flex;width:16px;height:16px;flex:0 0 auto;margin-right:2px}.gv-link svg{width:16px;height:16px}.gv-link.an svg{fill:#25a85a}.gv-link.aus svg{fill:#b8c2c0}
+.gv-wa{display:inline-flex;width:16px;height:16px;flex:0 0 auto;margin-right:2px}.gv-wa svg{width:16px;height:16px}.gv-wa.an svg{fill:#25a85a}.gv-wa.aus svg{fill:#b8c2c0}
+.gv-kopf-knopf{order:99;margin-left:auto;display:inline-flex;gap:4px;padding-left:8px}.gv-kopf-knopf .btn{min-width:74px}
+.gv-pop{position:absolute;z-index:50;width:280px;padding:12px;border-radius:12px;background:var(--panel,#fff);box-shadow:0 8px 28px rgba(0,0,0,.18);border:1px solid rgba(0,0,0,.08);display:grid;gap:8px}
+.gv-duo{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px 24px;align-items:start}.gv-duo>*{min-width:0}
+.gv-kanaele{margin:6px 0 12px}.gv-kanaele>summary{cursor:pointer;font-weight:600;color:var(--accent,#176c60);padding:6px 0}
+
+/* Handy: Saugroboter */
+.sv-status{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:4px 0}.sv-zustand{font-size:18px}.sv-akku.bad{color:var(--bad,#b42318);font-weight:600}
+.sv-knoepfe{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}.sv-knoepfe .btn{min-height:44px}.sv-raeume{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0 10px}.sv-raeume input{width:22px;height:22px}
+/* Handy-Reiterleiste mit 8 Reitern (13.10.2026): schlank wie eine App-Leiste, Symbol oben, kurzer Text darunter */
+.mob-tabs{gap:3px;padding:6px 4px calc(6px + env(safe-area-inset-bottom))}.mob-tabs .mob-tab{flex:1 1 0;min-width:0;padding:4px 0;font-size:11px;line-height:1.25;border-radius:10px;white-space:normal;overflow:hidden}.mob-tabs .mob-tab.mob-tab-ampel{flex:1 1 0;font-size:20px;padding:0}
+.mob-titel{display:flex;flex-direction:column;line-height:1.15}.mob-ver{font-size:11px;font-weight:400;opacity:.8}
+
+/* Verknüpfungs-Assistent */
+.vk-assist{display:grid;gap:10px}.vk-schritt{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:17px}.vk-nr{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#176c60;color:#fff;font-weight:700;font-size:14px;flex:none}
+.vk-karten{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}.vk-karte{display:grid;gap:2px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;font:inherit}.vk-karte:hover,.vk-karte.an{border-color:#176c60;background:#f2f8f5}
+.vk-raum h4{margin:6px 0 4px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}.vk-gewaehlt{margin:0 0 0 38px}.vk-satz{font-size:18px;padding:12px 14px;border-radius:10px;background:#f2f8f5;border:1px solid #cfe2d7}.vk-liste>summary{cursor:pointer;color:#176c60;font-weight:600;margin:4px 0}

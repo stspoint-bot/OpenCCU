@@ -35,9 +35,15 @@ function dienste(web) {
   try {
     const st = web.security?.monitor?.status?.();
     for (const r of (st?.services || []).slice(0, 60)) {
-      if (!r || r.status === 'disabled' || r.warningIgnored) continue;
-      const stufe = r.status === 'online' ? 'ok' : r.status === 'offline' ? 'fehler' : 'hinweis';
-      const wie = r.status === 'online' ? 'läuft' : r.status === 'offline' ? 'nicht erreichbar' : r.status === 'pending' ? 'Neustart der Bridge nötig' : 'nicht prüfbar';
+      if (!r || r.status === 'disabled') continue;
+      // Geräte (Steckdosen, Lampen, Dyson …), die einfach ausgesteckt sind, sind kein Fehler (Wunsch Thomas 13.10.2026):
+      // abgewählte Ausfallwarnung bzw. Onlineprüfung aus → gar nicht zeigen; sonst ohne Verbindung → grau „aus“ (zählt nicht für die Ampel).
+      // Dienste und Schnittstellen der CCU bleiben bei Ausfall rot.
+      const geraet = r.canIgnoreWarning === true;
+      if (geraet && r.status !== 'online' && (r.warningIgnored || r.notifyEnabled === false)) continue;
+      if (!geraet && r.warningIgnored) continue;
+      const stufe = r.status === 'online' ? 'ok' : r.status === 'offline' ? (geraet ? 'aus' : 'fehler') : 'hinweis';
+      const wie = r.status === 'online' ? 'läuft' : r.status === 'offline' ? (geraet ? 'ohne Verbindung – ausgesteckt oder ohne Strom?' : 'nicht erreichbar') : r.status === 'pending' ? 'Neustart der Bridge nötig' : 'nicht prüfbar';
       out.push({ id: 'dienst:' + txt(String(r.id), 80), bereich: 'Dienste & Integrationen', stufe, text: txt(String(r.name || r.id), 80) + ' – ' + wie });
     }
   } catch {}
@@ -48,18 +54,30 @@ function dienste(web) {
 function geraete(web) {
   let m;
   try { m = require('./ccu-zentrale')._internal.messages(web); } catch { return [{ id: 'meldungen-fehlt', bereich: 'Geräte', stufe: 'hinweis', text: 'Gerätemeldungen der CCU nicht lesbar' }]; }
-  const list = Array.isArray(m) ? m : (m?.messages || []);
+  // Geräte mit abgeschalteten Meldungen (meldungen-aus.js, „Geräte (neu)“) nicht zeigen
+  let M = null; try { M = require('./meldungen-aus'); } catch {}
+  const list = (Array.isArray(m) ? m : (m?.messages || [])).filter(x => !M || !M.isOff(web, x.address));
   if (!list.length) return [{ id: 'meldungen', bereich: 'Geräte', stufe: 'ok', text: 'Keine Gerätemeldungen – alle Geräte in Ordnung' }];
-  return list.slice(0, 40).map(x => ({ id: 'meldung:' + txt(String(x.id), 80), bereich: 'Geräte', stufe: x.level === 'bad' ? 'fehler' : 'hinweis',
+  // „Nicht erreichbar“ (UNREACH) heißt meist: ausgesteckt oder ohne Strom → grau „aus“, kein Fehler (Wunsch Thomas 13.10.2026)
+  return list.slice(0, 40).map(x => ({ id: 'meldung:' + txt(String(x.id), 80), bereich: 'Geräte', stufe: x.type === 'UNREACH' ? 'aus' : x.level === 'bad' ? 'fehler' : 'hinweis',
     text: txt(String(x.device || 'Gerät'), 60) + (x.room ? ' (' + txt(String(x.room), 40) + ')' : '') + ': ' + txt(String(x.label || x.type || 'Meldung'), 80) }));
 }
 
+// Tasmota-Geräte mit Onlineprüfung (tasmota-wache.js): nicht erreichbar → grau „aus“ (ausgesteckt ist kein Fehler), sonst eine Sammelzeile
+function tasmota(web) {
+  let hosts = []; try { hosts = require('./tasmota-wache')._test.wache(web).status().hosts.filter(h => h.onlineCheck); } catch { return []; }
+  if (!hosts.length) return [];
+  const off = hosts.filter(h => !h.online);
+  return [...off.slice(0, 30).map(h => ({ id: 'tasmota:' + h.mac, bereich: 'Dienste & Integrationen', stufe: 'aus', text: 'Tasmota · ' + txt(h.name || h.mac, 60) + ' – ohne Verbindung – ausgesteckt oder ohne Strom?' })),
+    { id: 'tasmota', bereich: 'Dienste & Integrationen', stufe: 'ok', text: 'Tasmota: ' + (hosts.length - off.length) + ' von ' + hosts.length + ' Geräten erreichbar' }];
+}
+
 function zustand(web, now = Date.now(), file = STATUS) {
-  const w = wartung(now, file), punkte = [...w.punkte, ...dienste(web), ...geraete(web)];
+  const w = wartung(now, file), punkte = [...w.punkte, ...dienste(web), ...tasmota(web), ...geraete(web)];
   const zahl = s => punkte.filter(p => p.stufe === s).length;
   // Rot = Problem (dafür kommt auch eine WhatsApp), Gelb = nicht so gut / beobachten, Grün = alles gut
   const ampel = zahl('fehler') || zahl('warnung') ? 'rot' : zahl('hinweis') ? 'gelb' : 'gruen';
-  return { ampel, zaehler: { ok: zahl('ok'), hinweis: zahl('hinweis'), warnung: zahl('warnung'), fehler: zahl('fehler') },
+  return { ampel, zaehler: { ok: zahl('ok'), aus: zahl('aus'), hinweis: zahl('hinweis'), warnung: zahl('warnung'), fehler: zahl('fehler') },
     erstellt: w.erstellt, naechste: w.naechste, aufraeumen: w.aufraeumen || '', wdWartung: w.wdWartung || '', langtest: w.langtest || null, punkte, jetzt: now };
 }
 
@@ -103,4 +121,4 @@ async function handle(web, req, res, u, auth) {
   } catch (e) { send(e.status || 500, { error: e.status ? e.message : 'Systemzustand nicht abrufbar' }); }
   return true;
 }
-module.exports = { handle, _test: { wartung, langtest, dienste, geraete, zustand, reset: () => { lastRun = 0; running = null; lastScan = 0; } } };
+module.exports = { handle, _test: { wartung, langtest, dienste, tasmota, geraete, zustand, reset: () => { lastRun = 0; running = null; lastScan = 0; } } };

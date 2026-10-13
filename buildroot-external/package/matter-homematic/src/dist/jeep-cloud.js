@@ -116,6 +116,22 @@ class JeepCloud{
   if(r?.responseStatus!=='pending')throw fail('Das Fahrzeug hat die Aktualisierung nicht angenommen.');
   return {accepted:true,correlationId:typeof r.correlationId==='string'?r.correlationId.slice(0,80):null};
  }
+ // Fahrzeug wecken OHNE Ladekabel (Freigabe Thomas 13.10.2026): „VF“ (Standort anfordern, wie „Fahrzeug finden“ in der App;
+ // py-uconnect REFRESH_LOCATION: POST /v1/…/vehicles/{vin}/location). Kein Schalten, kein Hupen/Licht – das Auto meldet sich nur.
+ // Gleicher PIN-Schutz wie oben (abgelehnte PIN → sofort anhalten).
+ async refreshLocation(vin,pin){
+  if(typeof vin!=='string'||!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin))throw fail('Fahrzeug ungültig',400);
+  if(typeof pin!=='string'||!/^\d{4}$/.test(pin))throw fail('Uconnect-PIN muss aus 4 Ziffern bestehen',400);
+  let auth;
+  try{auth=await this.signedPost(MFA,'/v1/accounts/'+this.uid+'/ignite/pin/authenticate',{pin:Buffer.from(pin,'utf8').toString('base64')},MFA_KEY);}
+  catch(e){if(e.upstreamStatus===401||e.upstreamStatus===403||e.upstreamStatus===400)throw Object.assign(fail('Uconnect-PIN wurde nicht angenommen. Aktualisierung angehalten, damit die PIN nicht gesperrt wird.',403),{pinRejected:true});throw e;}
+  if(typeof auth?.token!=='string'||!auth.token||auth.token.length>8192)throw Object.assign(fail('Uconnect-PIN wurde nicht bestätigt.',403),{pinRejected:true});
+  let r;
+  try{r=await this.signedPost(API,'/v1/accounts/'+this.uid+'/vehicles/'+vin+'/location',{command:'VF',pinAuth:auth.token},API_KEY);}
+  catch(e){if(e.upstreamStatus===403||e.upstreamStatus===400||e.upstreamStatus===404)throw Object.assign(fail('Uconnect lehnt das Anfordern der Fahrzeugdaten ab'+(e.upstreamReason?' – „'+e.upstreamReason+'“':'')+' (HTTP '+e.upstreamStatus+').',409),{upstreamStatus:e.upstreamStatus});throw e;}
+  if(r?.responseStatus!=='pending')throw fail('Das Fahrzeug hat die Anfrage nicht angenommen.');
+  return {accepted:true,correlationId:typeof r.correlationId==='string'?r.correlationId.slice(0,80):null};
+ }
  // Fernbefehle (Klima, Motor, Türen) wie py-uconnect command.py: POST /{v}/accounts/{uid}/vehicles/{vin}/remote.
  // Nur die hier gelisteten Befehle; die Freigabe je Fahrzeug prüft jeep-fernsteuerung.js anhand der „services“.
  async remoteCommand(vin,pin,name){

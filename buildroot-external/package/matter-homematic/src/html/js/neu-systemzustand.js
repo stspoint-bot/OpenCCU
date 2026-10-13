@@ -4,8 +4,8 @@
 // 🟢 gut · 🟡 nicht so gut (beobachten) · 🔴 schlecht (dafür kommt auch eine WhatsApp).
 (function () {
   const { h, api, msg } = window.NEU;
-  const LICHT = { ok: '🟢', hinweis: '🟡', warnung: '🔴', fehler: '🔴' };
-  const RANG = { fehler: 0, warnung: 1, hinweis: 2, ok: 3 };
+  const LICHT = { ok: '🟢', aus: '⚪', hinweis: '🟡', warnung: '🔴', fehler: '🔴' }; // aus = Gerät ohne Verbindung (ausgesteckt), zählt nicht für die Ampel
+  const RANG = { fehler: 0, warnung: 1, hinweis: 2, aus: 3, ok: 4 };
   const GESAMT = {
     gruen: ['🟢', 'Alles in Ordnung', 'CCU3, WD, Sicherungen, Dienste und Geräte laufen normal.'],
     gelb: ['🟡', 'Nicht ganz rund', 'Nichts Dringendes – ein paar Punkte bitte im Auge behalten.'],
@@ -14,18 +14,18 @@
   const BEREICHE = ['CCU3', 'WD', 'Sicherungen', 'Dienste & Integrationen', 'Geräte', 'Internet'];
   const ICON = { CCU3: '🏠', WD: '💾', Sicherungen: '🗄', 'Dienste & Integrationen': '🔌', Geräte: '💡', Internet: '🌐' };
   const uhr = t => t ? new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '–';
-  const schlimmste = list => list.reduce((a, p) => RANG[p.stufe] < RANG[a] ? p.stufe : a, 'ok');
+  const schlimmste = list => list.filter(p => p.stufe !== 'aus').reduce((a, p) => RANG[p.stufe] < RANG[a] ? p.stufe : a, 'ok');
   const zeile = p => h('li', { class: 'sz-zeile sz-' + p.stufe }, h('span', { class: 'sz-licht', 'aria-hidden': 'true', text: LICHT[p.stufe] }),
-    h('span', { text: p.text }), h('span', { class: 'sz-sr', text: ' (' + ({ ok: 'gut', hinweis: 'nicht so gut', warnung: 'schlecht', fehler: 'schlecht' })[p.stufe] + ')' }));
+    h('span', { text: p.text }), h('span', { class: 'sz-sr', text: ' (' + ({ ok: 'gut', aus: 'ohne Verbindung', hinweis: 'nicht so gut', warnung: 'schlecht', fehler: 'schlecht' })[p.stufe] + ')' }));
 
   // Gemeinsame Darstellung für PC und Handy
   function render(box, d, { kompakt, knopf } = {}) {
     const [licht, titel, text] = GESAMT[d.ampel] || GESAMT.gelb, z = d.zaehler || {};
-    const offen = d.punkte.filter(p => p.stufe !== 'ok').sort((a, b) => RANG[a.stufe] - RANG[b.stufe]);
+    const offen = d.punkte.filter(p => !['ok', 'aus'].includes(p.stufe)).sort((a, b) => RANG[a.stufe] - RANG[b.stufe]);
     const kopf = h('div', { class: 'sz-kopf sz-' + d.ampel },
       h('div', { class: 'sz-gross', 'aria-hidden': 'true', text: licht }),
       h('div', {}, h('h2', { text: titel }), h('p', { text: text }),
-        h('p', { class: 'sz-zahlen' }, h('span', { text: '🟢 ' + (z.ok || 0) + ' gut' }), h('span', { text: '🟡 ' + (z.hinweis || 0) + ' beobachten' }), h('span', { text: '🔴 ' + ((z.warnung || 0) + (z.fehler || 0)) + ' Problem' })),
+        h('p', { class: 'sz-zahlen' }, h('span', { text: '🟢 ' + (z.ok || 0) + ' gut' }), h('span', { text: '🟡 ' + (z.hinweis || 0) + ' beobachten' }), z.aus ? h('span', { text: '⚪ ' + z.aus + ' ohne Verbindung' }) : null, h('span', { text: '🔴 ' + ((z.warnung || 0) + (z.fehler || 0)) + ' Problem' })),
         h('p', { class: 'muted', text: 'Letzte Prüfung ' + uhr(d.erstellt) + (d.naechste ? ' · nächste automatisch ' + uhr(d.naechste) : '') }),
         knopf ? h('div', { class: 'actions sz-knopf' }, ...knopf) : null));
     const teile = [kopf];
@@ -110,7 +110,7 @@
       if (document.hidden && !force) return;
       try {
         const d = await api('getSystemzustand'), g = GESAMT[d.ampel] || GESAMT.gelb, z = d.zaehler || {};
-        const offen = d.punkte.filter(p => p.stufe !== 'ok').sort((a, b) => RANG[a.stufe] - RANG[b.stufe]);
+        const offen = d.punkte.filter(p => !['ok', 'aus'].includes(p.stufe)).sort((a, b) => RANG[a.stufe] - RANG[b.stufe]);
         slot.replaceChildren(h('a', { class: KL[d.ampel] || 'notice warn', href: '/systemzustand.html', style: 'display:flex;gap:12px;align-items:center;text-decoration:none;color:inherit' },
           h('span', { 'aria-hidden': 'true', style: 'font-size:34px;line-height:1', text: g[0] }),
           h('span', {}, h('b', { text: 'Systemzustand: ' + g[1] }), h('br'),
@@ -151,6 +151,30 @@
     laden(); setInterval(() => { if (!document.hidden) laden(); }, 60000);
   }
 
+  // ---- CCU3 im Detail (Wunsch Thomas 13.10.2026: wie „WD im Detail“). Daten: getCcuDetail (nur Administrator, 60 s zwischengespeichert). ----
+  const MB = v => v === null || v === undefined ? null : v >= 1024 ? zahl(v / 1024, 'GB', 1) : zahl(v, 'MB', 0);
+  const platz = s => s ? MB(s.freiMB) + ' frei von ' + MB(s.gesamtMB) + ' (' + zahl(s.belegtProzent, '%', 0) + ' belegt)' : null;
+  const platzAmpel = s => !s ? 'grau' : s.belegtProzent >= 90 ? 'rot' : s.belegtProzent >= 80 ? 'gelb' : 'gruen';
+  function ccuDetail(box, stand) {
+    const laden = async () => {
+      let s; try { s = await api('getCcuDetail'); } catch (e) { box.replaceChildren(h('p', { class: 'muted', text: e.status === 403 ? 'Nach Anmeldung als CCU-Administrator sichtbar.' : 'CCU-Bericht nicht lesbar: ' + e.message })); stand.textContent = ''; return; }
+      const sp = s.speicher || {}, c = [];
+      c.push(karte([sp.daten, sp.ram].some(x => platzAmpel(x) === 'rot') ? 'rot' : [sp.daten, sp.ram].some(x => platzAmpel(x) === 'gelb') ? 'gelb' : 'gruen', 'Speicher', [['Daten (SD-Karte, /usr/local)', platz(sp.daten)], ['System (nur lesen)', platz(sp.system)], ['Arbeitsspeicher-Laufwerk (/tmp)', platz(sp.ram)],
+        ['SD-Karte', s.sd?.gesamtGB ? zahl(s.sd.gesamtGB, 'GB', 1) : null], ['Auf die SD geschrieben seit Start', s.sd?.geschriebenSeitStartMB !== null && s.sd?.geschriebenSeitStartMB !== undefined ? MB(s.sd.geschriebenSeitStartMB) + (s.laufzeitTage ? ' (≈ ' + MB(Math.round(s.sd.geschriebenSeitStartMB / Math.max(s.laufzeitTage, 0.1))) + ' je Tag)' : '') : null]]));
+      const lastHoch = s.kerne && s.last?.[0] > s.kerne * 1.5;
+      c.push(karte((s.temperaturC ?? 0) >= 80 ? 'rot' : (s.temperaturC ?? 0) >= 70 || lastHoch || (s.ramFreiMB ?? 999) < 80 ? 'gelb' : 'gruen', 'System' + (s.modell ? ' – ' + s.modell : ''), [['Prozessor-Temperatur', s.temperaturC !== null ? zahl(s.temperaturC, '°C', 0) + ' (normal bis etwa 70 °C)' : null], ['Auslastung (1 / 5 / 15 min)', s.last ? s.last.map(v => zahl(v, '', 2)).join(' / ') + (s.kerne ? ' bei ' + s.kerne + ' Kernen' : '') : null],
+        ['Arbeitsspeicher frei', s.ramFreiMB !== null ? MB(s.ramFreiMB) + (s.ramGesamtMB ? ' von ' + MB(s.ramGesamtMB) : '') : null], ['Läuft seit', s.laufzeitTage !== null ? zahl(s.laufzeitTage, 'Tagen', 1) : null], ['Letzter Neustart', s.letzterNeustart ? new Date(s.letzterNeustart).toLocaleString('de-DE') : null],
+        ['Firmware (OpenCCU)', s.firmware || null], ['Matter-Bridge', s.bridge ? s.bridge + (s.bridgeSpeicherMB ? ' · belegt ' + MB(s.bridgeSpeicherMB) : '') : null]]));
+      if (s.dutyCycle !== null && s.dutyCycle !== undefined) c.push(karte(s.dutyCycle >= 90 ? 'rot' : s.dutyCycle >= 60 ? 'gelb' : 'gruen', 'Funk (Homematic)', [['Funkauslastung (Duty Cycle)', zahl(s.dutyCycle, '%', 0) + ' (ab 100 % sendet die CCU eine Stunde lang nicht mehr)']]));
+      if (s.dienste?.length) c.push(karte(s.dienste.some(d => !d.laeuft) ? 'rot' : 'gruen', 'Dienste', s.dienste.map(d => [d.name, d.laeuft ? '✔ läuft' : '✖ läuft NICHT'])));
+      const pk = s.punkte || [], bericht = pk.length ? h('details', { class: 'more' }, h('summary', { text: 'Kompletter Zustandsbericht der CCU3 (' + pk.length + ' Punkte' + (pk.some(p => p.stufe !== 'ok') ? ', ' + pk.filter(p => p.stufe !== 'ok').length + ' mit Hinweis' : '') + ')' }),
+        NEU.table(['', 'Punkt'], pk.map(p => h('tr', {}, h('td', { text: LICHT[p.stufe] || '⚪' }), h('td', { text: p.text || '' }))))) : null;
+      box.replaceChildren(h('div', { class: 'cards' }, ...c), bericht || '');
+      stand.textContent = 'Stand ' + new Date(s.erstellt).toLocaleTimeString('de-DE') + ' · aktualisiert sich jede Minute';
+    };
+    laden(); setInterval(() => { if (!document.hidden) laden(); }, 60000);
+  }
+
   // ---- PC-Seite ----
   if (location.pathname !== '/systemzustand.html') return;
   const main = NEU.shell({ title: 'Systemzustand', eyebrow: 'System', crumb: 'System', lead: 'Ampel für CCU3, WD, Sicherungen, Dienste und Geräte – auf einen Blick. 🟢 gut · 🟡 beobachten · 🔴 Problem (dafür kommt auch eine WhatsApp).' });
@@ -158,6 +182,9 @@
   const btn = h('button', { class: 'btn', type: 'button', text: '↻ Jetzt prüfen' });
   const a = anzeige(box, out, { knopf: [btn, out] }); btn.addEventListener('click', () => a.pruefen(btn));
   main.append(NEU.panel('Zustand', 'Wird alle 15 Minuten automatisch geprüft; diese Seite aktualisiert sich jede Minute.', box, h('div', {}, out)));
+  const ccuBox = h('div', {}, h('p', { class: 'muted', text: 'Wird geladen …' })), ccuStand = h('p', { class: 'muted' });
+  main.append(NEU.panel('🏠 CCU3 im Detail', 'Speicher und SD-Karte, Temperatur, Auslastung, Firmware, Dienste, Funkauslastung und der komplette Zustandsbericht der CCU3.', ccuBox, ccuStand));
+  ccuDetail(ccuBox, ccuStand);
   const wdBox = h('div', {}, h('p', { class: 'muted', text: 'Wird geladen …' })), wdStand = h('p', { class: 'muted' });
   main.append(NEU.panel('💾 WD im Detail', 'Speicher, Temperatur, Firmware, Dienste und der komplette Zustandsbericht, den die WD alle 5 Minuten meldet.', wdBox, wdStand));
   a.start(); wdDetail(wdBox, wdStand);

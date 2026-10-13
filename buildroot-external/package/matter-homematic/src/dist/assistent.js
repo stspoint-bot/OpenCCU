@@ -140,9 +140,56 @@ async function ask(web, text, deps = {}) {
   return { rule, ...(typeof ai.rueckfrage === 'string' && ai.rueckfrage.trim() ? { question: ai.rueckfrage.trim().slice(0, 300) } : {}) };
 }
 
+// ---------- Stufe 3: Direkte Verknüpfungen per KI (Wunsch Thomas 13.10.2026: „KI soll alles ausfüllen, ich bestätige nur“) ----------
+// Eigene, eng begrenzte Aufgabe (nur Verknüpfungen, nie Automationen): Die KI sieht nur Kurzzeichen, Namen, Räume und Kanalarten;
+// ihr Vorschlag wird gegen die echten Kanäle geprüft (Sender kann senden, Empfänger kann empfangen, gleiche Schnittstelle, Rollen passen).
+// Mit „Taste drücken“ steht der Sender schon fest (sender = Kanaladresse) – dann wählt die KI nur noch die Empfänger.
+// Angelegt wird erst nach „Bestätigen“ (addDirectLink in verknuepfungen.js, dort erneut geprüft).
+const VK_SCHEMA = { type: 'OBJECT', properties: { sender: { type: 'STRING' }, receivers: { type: 'ARRAY', items: { type: 'STRING' } }, name: { type: 'STRING' }, rueckfrage: { type: 'STRING' } }, required: ['receivers'] };
+const CHAN = /^[A-Za-z0-9_-]{4,40}:\d{1,3}$/;
+async function askLink(web, text, fixed, deps = {}) {
+  const s = settings(web);
+  if (!s.enabled) throw fail('Die KI ist ausgeschaltet (Automationen → Assistent → KI einrichten)', 409);
+  const key = deps.key !== undefined ? deps.key : readKey(web); if (!key) throw fail('Kein KI-Schlüssel hinterlegt (Automationen → Assistent → KI einrichten)', 409);
+  if (typeof text !== 'string' || text.trim().length < 3 || text.length > 500 || /[\x00-\x09\x0b-\x1f\x7f]/.test(text)) throw fail('Bitte in einem Satz beschreiben, was die Taste schalten soll (3 bis 500 Zeichen)');
+  if (fixed !== undefined && (typeof fixed !== 'string' || !CHAN.test(fixed))) throw fail('Taste ungültig');
+  const ch = deps.channels || (await require('./verknuepfungen')._test.candidates(web)).channels;
+  const pinned = fixed ? ch.find(c => c.address === fixed && c.source.length) : null;
+  if (fixed && !pinned) throw fail('Diese Taste kann keine direkte Verknüpfung senden', 422);
+  if (!allow(web)) throw fail('Höchstens ' + LIMIT_PER_HOUR + ' KI-Anfragen je Stunde', 429);
+  const back = new Map(), lines = []; let pinnedId = '';
+  for (const c of ch.slice(0, 600)) {
+    if (pinned && c !== pinned && !(c.interface === pinned.interface && pinned.source.some(x => c.target.includes(x)))) continue; // mit fester Taste nur passende Empfänger zeigen
+    const id = 'k' + (back.size + 1); back.set(id, c); if (c === pinned) pinnedId = id;
+    lines.push(id + ': „' + c.name + '“ (' + (c.room || 'ohne Raum') + ', ' + (c.channelType || c.type || 'Kanal') + ')' + (c.source.length ? ' – kann senden' : '') + (c.target.length ? ' – kann empfangen' : ''));
+  }
+  const prompt = 'Du schlägst NUR direkte Verknüpfungen zwischen Homematic-Kanälen vor (ein Sender, z. B. eine Taste, steuert einen oder mehrere Empfänger, z. B. einen Schaltaktor). Du kannst nichts anlegen und machst nichts anderes. ' +
+    'Verwende ausschließlich die Kurzzeichen (k1, k2, …). Sender muss „kann senden“ haben, Empfänger „kann empfangen“. Bei Aktoren mit mehreren gleichartigen Empfangskanälen nimm den ersten passenden. ' +
+    (pinned ? 'Der Sender steht fest: ' + pinnedId + '. Wähle nur die Empfänger. ' : '') +
+    'Gib einen kurzen deutschen Namen für die Verknüpfung (höchstens 40 Zeichen). Wenn unklar ist, welches Gerät gemeint ist, trage eine kurze Rückfrage in „rueckfrage“ ein und lass receivers leer.\n\nKanäle:\n' + lines.join('\n') + '\n\nWunsch: ' + text.trim();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${s.model}:generateContent`;
+  const answer = await postRetry(deps.post || post, url, { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: VK_SCHEMA, maxOutputTokens: 2048 } }, key, deps.wait);
+  const ai = parseAnswer(answer), frage = typeof ai.rueckfrage === 'string' ? ai.rueckfrage.trim().slice(0, 300) : '';
+  const recv = Array.isArray(ai.receivers) ? ai.receivers.slice(0, 4) : [];
+  if (!recv.length) { if (frage) return { question: frage }; throw fail('Die KI hat keinen passenden Empfänger gefunden – bitte genauer beschreiben', 422); }
+  const sender = pinned || back.get(String(ai.sender || ''));
+  if (!sender || !sender.source.length) throw fail('Die KI nannte keinen gültigen Sender – bitte die Taste genauer beschreiben oder „Taste drücken“ nutzen', 422);
+  const receivers = [];
+  for (const r of recv) {
+    const c = back.get(String(r || ''));
+    if (!c || !c.target.length) throw fail('Die KI nannte einen ungültigen Empfänger – bitte genauer beschreiben', 422);
+    if (c.interface !== sender.interface) throw fail('„' + sender.name + '“ und „' + c.name + '“ hängen an verschiedenen Funkschnittstellen – direkt verknüpfen geht nicht', 422);
+    if (!sender.source.some(x => c.target.includes(x))) throw fail('„' + sender.name + '“ und „' + c.name + '“ passen nicht zusammen', 422);
+    if (c.address !== sender.address && !receivers.some(x => x.address === c.address)) receivers.push({ address: c.address, name: c.name, room: c.room });
+  }
+  if (!receivers.length) throw fail('Kein gültiger Empfänger', 422);
+  const name = String(ai.name || (sender.name + ' → ' + receivers[0].name)).replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 60);
+  return { interface: sender.interface, sender: { address: sender.address, name: sender.name, room: sender.room }, receivers, name, ...(frage ? { question: frage } : {}) };
+}
+
 async function handle(web, req, res, u, auth) {
   const method = u.pathname === '/api/' ? u.searchParams.get('method') : null;
-  if (!['getAssistent', 'suggestAutomation', 'askAssistent', 'saveAssistent'].includes(method)) return false;
+  if (!['getAssistent', 'suggestAutomation', 'askAssistent', 'saveAssistent', 'askVerknuepfung'].includes(method)) return false;
   const send = (s, d) => web.sendJson(res, s, d);
   try {
     if (!auth || auth.session?.localBypass) { send(403, { error: 'Nur nach Anmeldung als CCU-Administrator möglich' }); return true; }
@@ -155,6 +202,7 @@ async function handle(web, req, res, u, auth) {
     if (req.method !== 'POST') { send(405, { error: 'POST erforderlich' }); return true; }
     const p = await require('./web-security').body(req);
     if (method === 'askAssistent') { if (!isObject(p) || Object.keys(p).some(k => k !== 'text')) throw fail('Ungültige Anfrage'); send(200, await ask(web, p.text)); return true; }
+    if (method === 'askVerknuepfung') { if (!isObject(p) || Object.keys(p).some(k => !['text', 'sender'].includes(k))) throw fail('Ungültige Anfrage'); send(200, await askLink(web, p.text, p.sender)); return true; }
     if (!isObject(p) || Object.keys(p).some(k => !['enabled', 'model', 'key', 'removeKey'].includes(k))) throw fail('Ungültige Einstellung');
     if (p.enabled !== undefined && typeof p.enabled !== 'boolean') throw fail('Ein/Aus ungültig');
     if (p.model !== undefined && (typeof p.model !== 'string' || !MODEL.test(p.model))) throw fail('Modellname ungültig');
@@ -165,4 +213,4 @@ async function handle(web, req, res, u, auth) {
   } catch (e) { send(e.status || 500, { error: e.status ? e.message : 'Assistent: Anfrage fehlgeschlagen' }); }
   return true;
 }
-module.exports = { handle, suggestions, ask, toRule, aliases, _test: { allow, usage } };
+module.exports = { handle, suggestions, ask, askLink, toRule, aliases, _test: { allow, usage } };

@@ -3,14 +3,16 @@
 // Arbeitet wie OpenCCU selbst: Einstellungen in /etc/config/firewall.conf (gleiches Format wie libfirewall.tcl),
 // anwenden mit /bin/setfirewall.tcl. Nur für CCU-Administratoren.
 // Schutz vor dem Aussperren:
-// - Ports, die Matter/Apple Home und diese Oberfläche brauchen (5353, 5540, 8090), lassen sich nicht entfernen.
+// - Ports, die Matter/Apple Home brauchen (5353, 5540), lassen sich nicht entfernen.
 // - Nach dem Anwenden muss der Browser innerhalb von 90 Sekunden „Funktioniert“ bestätigen – sonst wird die vorherige
 //   Einstellung automatisch wiederhergestellt (wie bei einer Bildschirmauflösung am PC).
 // - Vor jeder Änderung eine Sicherung der alten Datei daneben.
 const fs = require('node:fs'), { execFile } = require('node:child_process');
 const DEFAULT_PATHS = Object.freeze({ conf: '/etc/config/firewall.conf', apply: '/bin/setfirewall.tcl', external: '/etc/config/AllowExternalAccess' });
-const REQUIRED = Object.freeze({ 5353: 'Apple Home findet die Bridge (mDNS)', 5540: 'Matter (Apple Home)', 8090: 'diese Oberfläche' });
-const KNOWN_PORTS = Object.freeze({ 80: 'alte Oberfläche (HTTP)', 81: 'Add-on-Seiten', 85: 'Add-on-Seiten', 8181: 'ReGa-Skripte', 9292: 'Funk-Dienst (XML-RPC)', 9874: 'Bridge-Rückmeldungen', 9875: 'Bridge-Rückmeldungen (HmIP/BidCos)', 9876: 'Bridge-Rückmeldungen (früher CUxD)', 9877: 'Bridge-Rückmeldungen', 5353: REQUIRED[5353], 5540: REQUIRED[5540], 8090: REQUIRED[8090], 8701: 'CUxD (entfernt)' });
+// 8090 (Bridge) ist nicht mehr Pflicht (13.10.2026, Hinweis Chat1): lighttpd leitet https über 127.0.0.1 weiter; offen
+// wäre die Oberfläche im Heimnetz zusätzlich ohne Verschlüsselung erreichbar.
+const REQUIRED = Object.freeze({ 5353: 'Apple Home findet die Bridge (mDNS)', 5540: 'Matter (Apple Home)' });
+const KNOWN_PORTS = Object.freeze({ 80: 'alte Oberfläche (HTTP)', 81: 'Add-on-Seiten', 85: 'Add-on-Seiten', 8181: 'ReGa-Skripte', 9292: 'Funk-Dienst (XML-RPC)', 9874: 'Bridge-Rückmeldungen', 9875: 'Bridge-Rückmeldungen (HmIP/BidCos)', 9876: 'Bridge-Rückmeldungen (früher CUxD)', 9877: 'Bridge-Rückmeldungen', 5353: REQUIRED[5353], 5540: REQUIRED[5540], 5541: 'Saugroboter (Apple Home)', 6666: 'Smart Life/SMART+ suchen', 6667: 'Smart Life/SMART+ suchen', 8090: 'Bridge direkt ohne https (nicht nötig)', 8701: 'CUxD (entfernt)' });
 const SERVICES = Object.freeze({ XMLRPC: 'Funk-Schnittstellen (XML-RPC)', REGA: 'Logikschicht (ReGa / Skripte)', NEOSERVER: 'Mediola NEO Server', SNMP: 'SNMP (Netzwerküberwachung)' });
 const ACCESS = ['full', 'restricted', 'none'], MODES = ['MOST_OPEN', 'RESTRICTIVE'];
 const LIMITS = Object.freeze({ ips: 20, ports: 50, confirmMs: 90000 });

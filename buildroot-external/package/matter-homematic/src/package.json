@@ -1,6 +1,6 @@
 {
   "name": "matter-homematic",
-  "version": "0.21.79-ccu3-neu",
+  "version": "0.21.93-ccu3-neu",
   "description": "A Matter bridge for Homematic CCU3/RaspberryMatic with browser room/device naming",
   "main": "dist/index.js",
   "scripts": {

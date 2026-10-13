@@ -76,7 +76,12 @@ document.addEventListener('DOMContentLoaded', () => {
       try { const d = await api(M('controlSmartplus'), { id: dev.id, command }); msg(cardMsg, d.message, 'ok'); dev.state = d.state; }
       catch (e) { msg(cardMsg, e.message, 'bad'); } finally { inputs.forEach((i, n) => { i.disabled = was[n]; }); controls.dataset.pending = 'false'; pending--; }
     };
-    if (caps.kind !== 'sensor') for (const [t, on] of [['Ein', true], ['Aus', false]]) { const b = h('button', { class: 'btn small' + (on ? ' primary' : ''), type: 'button', text: t, disabled: !dev.online }); b.addEventListener('click', () => send({ on })); controls.append(b); }
+    // Ein und Aus in EINEM Knopf mit Symbol (Wunsch Thomas 13.10.2026): Glühbirne bei Lampen, Stecker bei Steckdosen; Klick schaltet um
+    if (caps.kind !== 'sensor') {
+      const art = caps.brightness || caps.color || caps.temperature || caps.kind === 'light' ? 'licht' : 'stecker';
+      const mk = () => { const nb = NEU.powerButton(art, dev.state?.on === true, dev.name, () => send({ on: dev.state?.on !== true }).then(() => { const n = mk(); knopf.replaceWith(n); knopf = n; })); nb.disabled = !dev.online; return nb; };
+      let knopf = mk(); controls.append(knopf);
+    }
     // Eigener USB-Schalter der Steckdose (USB-Anschlüsse getrennt schaltbar)
     if (caps.usb) { const usbText = s => 'USB: ' + (s && s.usb === true ? 'an' : s && s.usb === false ? 'aus' : '?'), label = h('span', { class: 'muted', text: usbText(st) }); controls.append(label); for (const [t, usb] of [['USB ein', true], ['USB aus', false]]) { const b = h('button', { class: 'btn small', type: 'button', text: t, disabled: !dev.online }); b.addEventListener('click', () => send({ usb }).then(() => { label.textContent = usbText(dev.state); })); controls.append(b); } }
     if (caps.brightness) { const range = h('input', { type: 'range', min: 1, max: 100, value: Math.round(st.brightness || 100), disabled: !dev.online, 'aria-label': 'Helligkeit', style: 'accent-color:#176c60' }), val = h('span', { class: 'muted', text: range.value + ' %' }); range.addEventListener('input', () => { val.textContent = range.value + ' %'; }); range.addEventListener('change', () => send({ brightness: Number(range.value) })); controls.append(h('label', { class: 'row' }, 'Helligkeit', range, val)); }

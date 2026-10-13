@@ -10,7 +10,7 @@
 .sz-offen h3,.sz-scan h3{margin:0 0 8px;font-size:17px}
 .sz-liste{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 .sz-zeile{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:#f7faf8;line-height:1.35}
-.sz-zeile.sz-hinweis{background:var(--warn-soft)}.sz-zeile.sz-warnung,.sz-zeile.sz-fehler{background:var(--bad-soft)}
+.sz-zeile.sz-aus{color:var(--muted)}.sz-zeile.sz-hinweis{background:var(--warn-soft)}.sz-zeile.sz-warnung,.sz-zeile.sz-fehler{background:var(--bad-soft)}
 .sz-licht{flex:none;font-size:16px;line-height:1.35}
 .sz-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .sz-gruppen{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-items:start}

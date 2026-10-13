@@ -204,6 +204,9 @@ async function handle(web, req, res, u, auth) {
   if (await require('./entfeuchter').handle(web, req, res, u, auth)) return true;
   if (await require('./batterie-waechter').handle(web, req, res, u, auth)) return true;
   if (await require('./jeep-laden').handle(web, req, res, u, auth)) return true;
+  if (await require('./tasmota-wache').handle(web, req, res, u, auth)) return true;
+  if (await require('./meldungen-aus').handle(web, req, res, u, auth)) return true;
+  if (await require('./ccu-detail').handle(web, req, res, u, auth)) return true;
   if (await require('./jeep-wache').handle(web, req, res, u, auth)) return true; // WhatsApp-Hinweise, Nachtschloss, Fahrzeugzustand
   if (await require('./verknuepfungen').handle(web, req, res, u, auth)) return true;
   if (await require('./geraete-verwaltung').handle(web, req, res, u, auth)) return true;

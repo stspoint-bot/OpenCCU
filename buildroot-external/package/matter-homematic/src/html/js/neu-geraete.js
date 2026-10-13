@@ -1,437 +1,585 @@
 'use strict';
-// Seite „Geräte“: alle Kanäle der Bridge – Freigabe für Apple Home, Namen, CCU-Räume, Bedienung
-// (Schalter, Dimmer, Heizung, WLAN-Geräte), Onlineprüfung. Ersetzt die 13 Einzelskripte der alten
-// Startseite und nutzt dieselben Bridge-Schnittstellen.
+// Seite „Geräte“ (seit 13.10.2026 die einzige Geräteseite, Wunsch Thomas): alle Geräte mit den Angaben wie in der OpenCCU unter
+// „Einstellungen → Geräte“ (Typ, Seriennummer, Schnittstelle, Kategorie, Übertragungsmodus, Gewerk, Raum, Firmware …),
+// im Kopf Bedienknopf, Meldungs-Punkt und Spannung, aufgeklappt „Bedienung & Apple Home“, Messwerte, Raum/Gewerk, Kanäle.
+// Die früheren Seiten „Geräte“ und „Geräteverwaltung“ sind darin aufgegangen.
 document.addEventListener('DOMContentLoaded', () => {
-  const { h, api, shell, panel, field, check, msg, confirmDialog, toggle } = NEU;
-  const main = shell({ title: 'Geräte', eyebrow: 'Matter-Bridge', lead: 'Welche Geräte in Apple Home erscheinen, wie sie heißen, in welchem Raum sie sind – und direkte Bedienung.' });
-  const out = h('p', { class: 'msg', role: 'status' }), alert = h('div', { class: 'notice warn', hidden: true, text: 'Neustart nötig: Diese Freigabe wird erst nach einem Neustart der Bridge wirksam (System → Wartung).' });
-  const search = h('input', { type: 'search', placeholder: 'Name, Adresse, Typ oder Raum suchen …', 'aria-label': 'Geräte suchen' });
-  const f = { unnamed: h('input', { type: 'checkbox', checked: true }), offline: h('input', { type: 'checkbox' }), cuxd: h('input', { type: 'checkbox' }), unmapped: h('input', { type: 'checkbox' }), del: h('input', { type: 'checkbox' }), defaultExposed: h('input', { type: 'checkbox' }) };
-  const unnamedLabel = h('span', { text: 'Unbenannte Kanäle ausblenden' });
-  const total = h('span', { class: 'tag' }), body = h('tbody'), pager = h('div', { class: 'actions' });
-  const sortBtn = (key, label) => { const b = h('button', { class: 'btn small', type: 'button', text: label }); b.addEventListener('click', () => { sort = { key, dir: sort.key === key && sort.dir === 'asc' ? 'desc' : 'asc' }; render(); }); return b; };
-  const sortName = sortBtn('name', 'Name'), sortRoom = sortBtn('room', 'Raum');
-  // Kopfzeile: bei „Löschen-Funktion anzeigen“ steht die Spalte „Löschen“ ganz vorn (vor „In Apple Home“).
-  const COLS = ['In Apple Home', 'Name', 'Zustand / Bedienung', 'Raum', 'Typ', 'Aufzeichnen', 'Online prüfen'];
-  const headRow = h('tr', {}, COLS.map(t => h('th', { text: t })));
-  const unmappedBox = h('div', { hidden: true }), deleteBox = h('div', { hidden: true }), keysBox = h('div', { hidden: true }), newBox = h('div', { hidden: true });
-  main.append(alert, newBox,
-    panel('Alle Geräte', null,
-      h('div', { class: 'row' }, h('div', { style: 'flex:1 1 280px' }, search), total, h('a', { class: 'btn primary', href: '/anlernen.html', text: '＋ Neues Gerät anlernen' })),
-      h('div', { class: 'checks' }, h('label', { class: 'check' }, f.unnamed, unnamedLabel), check('Offline-Geräte ausblenden', f.offline), check('Nicht zugeordnete Kanäle zeigen', f.unmapped), h('a', { href: '/geraeteverwaltung.html', text: 'Geräte löschen → Geräteverwaltung' })),
-      h('div', { class: 'row' }, h('span', { class: 'muted', text: 'Sortieren:' }), sortName, sortRoom),
-      out,
-      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, headRow), body)),
-      pager),
-    keysBox, unmappedBox, deleteBox);
-  // Taster & Fernbedienungen: Funkgeräte ohne eigene Zeile oben (kein Schalt-/Messkanal, z. B. Wandtaster HmIP-WRC2).
-  // Sie haben keine Apple-Home-Kachel, lassen sich aber in den Automationen als Auslöser („Taste gedrückt“) nutzen.
-  let keysAt = 0;
-  async function renderKeys(force) {
-    if (!force && Date.now() - keysAt < 60000) return;
-    keysAt = Date.now();
-    let list = []; try { list = (await api('getCcuDeviceList')).devices || []; } catch { keysBox.hidden = true; return; }
-    const shown = new Set(devices.map(x => String(x.address || '').split(':')[0]));
-    // Neu angelernt (letzte 3 Stunden): oben auf der Seite, auch Geräte ohne eigene Zeile
-    const fresh = list.filter(g => g.newSince).sort((a, b) => b.newSince.localeCompare(a.newSince));
-    newBox.hidden = !fresh.length;
-    if (fresh.length) newBox.replaceChildren(panel('Neu angelernt (letzte 3 Stunden)', 'Gerade über „Neue Geräte anlernen“ übernommen. Name und Raum lassen sich in der Liste unten bzw. unter „Taster & Fernbedienungen“ finden.',
-      NEU.table(['Name', 'Typ', 'Raum', 'Adresse', 'Angelernt', ''], fresh.map(g => h('tr', {}, h('td', {}, h('b', { text: g.name || g.type })), h('td', {}, h('span', { class: 'tag', text: g.type || '–' })), h('td', { text: g.room || '–' }), h('td', { class: 'mono', text: g.address }), h('td', { text: new Date(g.newSince).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' }),
-        h('td', {}, h('a', { class: 'btn small primary', href: '/automationen.html?assist=' + encodeURIComponent(g.address), text: 'Einrichten (Assistent)' })))))));
-    const rest = list.filter(g => g.deletable && !shown.has(g.address));
-    // Taster & Fernbedienungen als eigene Zeilen in der Tabelle (Wunsch Thomas) statt einer Extra-Box
-    keyRows = rest.map(g => ({ address: g.address + ':1', keyBase: g.address, keyDevice: true, name: g.name || g.type || g.address, hmDeviceType: g.type, matterDeviceType: 'GenericSwitch', room: ownRooms.assign[g.address + ':1'] || '', exposed: false }));
-    devices = devices.filter(x => !x.keyDevice).concat(keyRows); keysBox.hidden = true; scheduleRender(); return;
-    keysBox.replaceChildren(panel('Taster & Fernbedienungen', 'Funkgeräte ohne Schalt- oder Messfunktion (z. B. Wandtaster). Sie erscheinen nicht als Kachel in Apple Home, lassen sich aber unter „Automationen“ als Auslöser „Taste gedrückt“ verwenden.',
-      NEU.table(['Name', 'Typ', 'Raum', 'Adresse', ''], rest.map(g => h('tr', {}, h('td', {}, h('b', { text: g.name || g.type })), h('td', {}, h('span', { class: 'tag', text: g.type || '–' })), h('td', { text: g.room || '–' }), h('td', { class: 'mono', text: g.address }),
-        h('td', {}, h('a', { class: 'btn small', href: '/automationen.html?assist=' + encodeURIComponent(g.address), text: 'Einrichten (Assistent)' })))))));
+  const { h, api, shell, panel, msg, task, field } = NEU;
+  const main = shell({ title: 'Geräte', eyebrow: 'Zuhause', lead: 'Alle Geräte an einem Ort: aufklappen zum Bedienen, für Apple Home freigeben, aufzeichnen – und darunter alle Angaben wie Typ, Firmware, Funkempfang, Kanäle und Einstellungen.' });
+  const search = h('input', { type: 'search', placeholder: 'Suchen (Name, Typ, Seriennummer, Raum …)', 'aria-label': 'Geräte durchsuchen' });
+  const room = h('select', { 'aria-label': 'Raum' }), iface = h('select', { 'aria-label': 'Interface' }), only = h('select', { 'aria-label': 'Zustand' });
+  only.append(...[['', 'Alle Zustände'], ['problem', 'Nur mit Hinweis'], ['update', 'Firmware-Update verfügbar']].map(([v, t]) => h('option', { value: v, text: t })));
+  const reload = h('button', { class: 'btn', type: 'button', text: 'Neu einlesen' });
+  const out = h('p', { class: 'msg', role: 'status' }), list = h('div', { class: 'auto-list' }), stats = h('div', { class: 'stats' });
+  main.append(stats, panel('Geräte', 'Gelesen aus der Zentrale (nur lesen, es wird nichts gefunkt).', h('div', { class: 'row' }, search, room, iface, only, reload), out, list));
+  let data = null;
+  const join = a => a && a.length ? a.join(', ') : '–';
+  // Kanal-Typen der CCU auf Deutsch (unbekannte bleiben technisch, mit Tooltip)
+  const CH_TYPES = { MAINTENANCE: 'Wartung', MULTI_MODE_INPUT_TRANSMITTER: 'Eingang (Wandschalter)', SWITCH_TRANSMITTER: 'Schaltzustand', SWITCH_VIRTUAL_RECEIVER: 'Schaltkanal', SWITCH_WEEK_PROFILE: 'Wochenprogramm',
+    SWITCH: 'Schaltkanal', DIMMER_TRANSMITTER: 'Helligkeit (Zustand)', DIMMER_VIRTUAL_RECEIVER: 'Dimmkanal', DIMMER: 'Dimmkanal', DIMMER_WEEK_PROFILE: 'Wochenprogramm', KEY_TRANSCEIVER: 'Taste', KEY: 'Taste', VIRTUAL_KEY: 'Virtuelle Taste',
+    MOTIONDETECTOR_TRANSCEIVER: 'Bewegungsmelder', MOTION_DETECTOR: 'Bewegungsmelder', PRESENCEDETECTOR_TRANSCEIVER: 'Präsenzmelder', SHUTTER_CONTACT: 'Fensterkontakt', SHUTTER_CONTACT_TRANSCEIVER: 'Fensterkontakt', ROTARY_HANDLE_SENSOR: 'Fenstergriff',
+    HEATING_CLIMATECONTROL_TRANSCEIVER: 'Heizungsregelung', HEATING_CLIMATECONTROL_RECEIVER: 'Heizungsregelung (Empfang)', CLIMATECONTROL_FLOOR_TRANSCEIVER: 'Fußbodenheizung', CLIMATECONTROL_RT_TRANSCEIVER: 'Heizungsregelung', CLIMATECONTROL_REGULATOR: 'Regler', CLIMATE_TRANSCEIVER: 'Temperatur/Feuchte',
+    WEATHER: 'Wetter', WEATHER_TRANSMIT: 'Temperatur/Feuchte', HEATING_CLIMATECONTROL_CL_RECEIVER: 'Heizung (Kühlung)', HEATING_KEY_RECEIVER: 'Heizung (Taste)', HEATING_SHUTTER_CONTACT_RECEIVER: 'Heizung (Fensterkontakt)', HEATING_ROOM_TH_RECEIVER: 'Heizung (Raumfühler)',
+    BLIND_TRANSMITTER: 'Rollladen (Zustand)', BLIND_VIRTUAL_RECEIVER: 'Rollladenkanal', SHUTTER_TRANSMITTER: 'Rollladen (Zustand)', SHUTTER_VIRTUAL_RECEIVER: 'Rollladenkanal', BLIND: 'Rollladen', DOOR_LOCK_STATE_TRANSMITTER: 'Türschloss (Zustand)', DOOR_LOCK_RECEIVER: 'Türschloss',
+    ACCESS_TRANSCEIVER: 'Zugang', ACCESS_RECEIVER: 'Zugang', ENERGIE_METER_TRANSMITTER: 'Energiezähler', POWERMETER: 'Energiezähler', CONDITION_POWER: 'Grenzwert Leistung', CONDITION_CURRENT: 'Grenzwert Strom', CONDITION_VOLTAGE: 'Grenzwert Spannung', CONDITION_FREQUENCY: 'Grenzwert Frequenz',
+    SMOKE_DETECTOR: 'Rauchmelder', WATER_DETECTION_TRANSMITTER: 'Wassermelder', BRIGHTNESS_TRANSMITTER: 'Helligkeitssensor', ALARM_SWITCH_VIRTUAL_RECEIVER: 'Alarm', ACOUSTIC_SIGNAL_VIRTUAL_RECEIVER: 'Signalgeber', CENTRAL_KEY: 'Zentrale Taste', REMOTE_CONTROL: 'Fernbedienung', DEVICE_OPERATIONMODE: 'Betriebsart' };
+  const chType = t => CH_TYPES[t] || (t ? t.replace(/_/g, ' ').toLowerCase().replace(/^./, c => c.toUpperCase()) : '–');
+  // Funkempfang in Worten (RSSI in dBm, näher an 0 = besser)
+  const signal = v => v == null || Math.abs(v) >= 255 || v === 0 ? '–' : v >= -65 ? v + ' dBm (sehr gut)' : v >= -80 ? v + ' dBm (gut)' : v >= -90 ? v + ' dBm (schwach)' : v + ' dBm (sehr schwach)';
+  function tags(d) {
+    const t = [];
+    // „nicht erreichbar“ steht seit 13.10.2026 als Verbindungs-Symbol im Kopf (linkIcon: grün erreichbar, grau nicht)
+    if (d.lowBat) t.push(['tag warn', 'Batterie schwach']);
+    if (d.sabotage) t.push(['tag bad', 'Sabotage']);
+    if (d.dutyCycle) t.push(['tag warn', 'Sendelimit']);
+    if (d.configPending) t.push(['tag', 'Konfiguration offen']);
+    if (!d.ready) t.push(['tag warn', 'im Posteingang']);
+    if (d.firmwareUpdate && !d.central) t.push(['tag warn', '⬆ Firmware-Update ' + d.firmware + ' → ' + d.firmwareUpdate + (d.firmwareState && d.firmwareState !== 'aktuell' ? ' (' + d.firmwareState + ')' : '')]);
+    else if (d.firmwareState && !['aktuell', ''].includes(d.firmwareState)) t.push(['tag warn', 'Firmware: ' + d.firmwareState]);
+    // „Apple Home“ steht seit 13.10.2026 als Haus-Symbol im Kopf (homeIcon), nicht mehr als Schriftzug
+    return t;
   }
-
-  let keyRows = [], ownRooms = { assign: {} }, devices = [], rooms = [], channels = [], cux = { settings: {}, states: new Map(), error: '' };
-  let sort = { key: 'name', dir: 'asc' }, page = 0, size = 25, loading = false, retry = null;
-  const editing = new Set(); // Adressen mit ungespeicherten Namen
-  const PROVIDERS = { smartplus: 'controlSmartplus', smartlife: 'controlSmartlife', dyson: 'controlDyson', tasmota: 'controlTasmota' };
-  const cuxId = a => (/^((?:CUX)[A-Za-z0-9_-]{1,60}):\d{1,3}$/i.exec(a || '') || [])[1];
-  const hasName = d => !!d.name && !!d.address && !d.name.includes(d.address);
-  const offline = d => d.provider ? d.online === false : cuxId(d.address) ? (cux.states.get('cux:' + cuxId(d.address)) || {}).status === 'offline' : d.onlineStatus === 'offline';
-  function extraCuxd(d) {
-    const a = d.address || ''; if (d.interface !== 'CUxD' && !/^CUX/i.test(a)) return false;
-    const m = /:(\d+)$/.exec(a); if (!m) return false;
-    const base = a.slice(0, m.index).toUpperCase(); let first;
-    for (const c of [...devices, ...channels]) { const x = /^(.*):(\d+)$/.exec(c.address || ''); if (!x || x[1].toUpperCase() !== base) continue; const n = Number(x[2]); if (first === undefined || (n > 0 && (first === 0 || n < first))) first = n; }
-    return Number(m[1]) !== first;
+  const problem = d => d.unreach || d.lowBat || d.sabotage || d.dutyCycle || d.configPending || !d.ready;
+  function info(label, value) { return h('div', {}, h('span', { class: 'muted', text: label + ': ' }), h('span', { text: value || '–' })); }
+  function render() {
+    if (!data) return;
+    for (const b of [...lives.keys()]) stopLive(b);
+    const q = search.value.trim().toLowerCase();
+    const items = data.devices.filter(d => (!q || [d.name, d.type, d.address, d.interface, ...d.rooms, ...d.functions, ...d.channels.map(c => c.name)].join(' ').toLowerCase().includes(q))
+      && (!room.value || d.rooms.includes(room.value)) && (!iface.value || d.interface === iface.value)
+      && (only.value !== 'problem' || problem(d)) && (only.value !== 'update' || d.firmwareUpdate))
+      .sort((a, b) => String(shownName(a) || '').localeCompare(String(shownName(b) || ''), 'de', { sensitivity: 'base', numeric: true })); // alphabetisch (Wunsch Thomas)
+    list.replaceChildren(...(items.length ? items.map(d => {
+      const img = d.icon ? h('img', { class: 'dev-icon', src: '/geraet-bild/' + encodeURIComponent(d.icon), alt: '', width: 40, height: 40, loading: 'lazy' }) : h('span', { class: 'dev-icon' });
+      const chRows = d.channels.map(c => h('tr', {},
+        h('td', { class: 'mono', text: c.address }), h('td', { text: c.name }), h('td', { text: chType(c.type), title: c.type || '' }), h('td', { text: c.direction || '–' }),
+        h('td', { text: c.aes ? 'Gesichert' : 'Standard' }), h('td', { text: join(c.functions) }), h('td', { text: join(c.rooms) }), h('td', { text: valueText(c.value, d.type + ' ' + (c.type || '')), title: c.value ? c.value.key : '' })));
+      const liveBox = h('div', { class: 'gv-live' }), wpBox = h('div', { class: 'gv-wp' });
+      const chTable = h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ...['Kanal', 'Name', 'Typ', 'Kategorie', 'Übertragung', 'Gewerk', 'Raum', 'Wert'].map(t => h('th', { text: t })))), h('tbody', {}, ...chRows)));
+      const kanalMenu = h('details', { class: 'gv-kanaele' }, h('summary', {}, 'Kanäle & Live-Werte (' + d.channels.length + ' Kanäle)', h('span', { class: 'gv-stand muted' })), h('h4', { text: 'Kanäle' }), chTable, h('h4', { text: 'Live-Werte' }), liveBox);
+      const hsRow = headSwitch(rowsByDevice.get(d.address) || []);
+      const det = h('details', { class: 'auto-item' },
+        h('summary', {}, ...hsRow, symbole(d.central ? null : linkIcon(!d.unreach), meldDot(d), (rowsByDevice.get(d.address) || []).length ? homeIcon(d.inAppleHome === true, d.address) : null), img, ' ', h('b', { text: shownName(d) }), h('span', { class: 'gv-dot', dataset: { dev: d.address }, title: 'Gerade betätigt', hidden: !(activity[d.address] > Date.now() - 30000) }), d.value && !(hsRow.length && ['STATE', 'LEVEL'].includes(d.value.key) && !VALVE.test(d.type || '')) ? h('span', { class: 'tag ok', text: valueText(d.value, d.type), title: d.value.channel }) : null, h('span', { class: 'muted', text: ' · ' + d.type + ' · ' + join(d.rooms) + (standOf(d.address) ? ' · ' + standOf(d.address) : '') }), ' ',
+          // „Geräte (neu)“: Betriebsspannung bei Batteriegeräten im Kopf (Wunsch Thomas 13.10.2026)
+          d.voltage != null && /batter/i.test(String(d.power || '')) ? h('span', { class: 'tag', text: '🔋 ' + String(d.voltage).replace('.', ',') + ' V', title: 'Betriebsspannung · ' + d.power }) : null, ...tags(d).map(([c, t]) => h('span', { class: c, text: t }))),
+        h('div', { class: 'auto-body' },
+          h('div', { class: 'form' },
+            info('Typenbezeichnung', d.type), info('Seriennummer', d.address), info('Funk-Schnittstelle', d.interface === 'HmIP-RF' ? 'Homematic IP (HmIP-RF)' : d.interface === 'BidCos-RF' ? 'Homematic (BidCos-RF)' : d.interface), info('Kategorie', d.category),
+            info('Übertragungsmodus', d.transmission), info('Gewerk', join(d.functions)), info('Raum', join(d.rooms)),
+            d.firmwareUpdate && !d.central ? h('div', {}, h('span', { class: 'muted', text: 'Firmware: ' }), h('span', { text: d.firmware + ' – ' }), fwLink(d)) : info('Firmware', d.firmware ? d.firmware + (d.firmwareUpdate ? ' – Update auf ' + d.firmwareUpdate + ' verfügbar' : ' (aktuell)') + (d.firmwareState && !['aktuell'].includes(d.firmwareState) ? ', ' + d.firmwareState : '') : ''), info('Stromversorgung', d.power),
+            info('Funkempfang Gerät', signal(d.rssi)), info('Funkempfang Zentrale', signal(d.rssiPeer)), info('Betriebsspannung', d.voltage == null ? '' : String(d.voltage).replace('.', ',') + ' V')),
+          bedienArea(rowsByDevice.get(d.address) || [], d),
+          // „Geräte (neu)“: Raum und Gewerk neben den Messwerten (Wunsch Thomas 13.10.2026)
+          h('div', { class: 'gv-duo' }, werteArea(d.address), placeArea(d)),
+          nameArea(d), d.firmwareUpdate && !d.central ? firmwareArea(d) : null, wpBox, settingsArea(d), deleteArea(d),
+          // Seite „Geräte (neu)“ (Wunsch Thomas 13.10.2026): Kanalliste und Live-Werte in EINEM Aufklappmenü ganz am Ende;
+          // Live-Werte werden nur gelesen, solange es offen ist
+          kanalMenu));
+      det.addEventListener('toggle', () => { if (det.open) { if (!wpBox.dataset.loaded && !d.central && ['HmIP-RF', 'BidCos-RF'].includes(d.interface)) { wpBox.dataset.loaded = '1'; loadWeek(d, wpBox); } } else stopLive(liveBox); });
+      if (kanalMenu) kanalMenu.addEventListener('toggle', () => { if (kanalMenu.open && det.open) startLive(d.address, liveBox); else stopLive(liveBox); });
+      return det;
+    }) : [h('div', { class: 'empty', text: data.devices.length ? 'Keine passenden Geräte.' : 'Keine Geräte gefunden.' })]));
   }
-  const post = (method, p) => api(method, p);
-  // Gerätebilder der CCU: Geräteadresse → Bilddatei (einmal laden; ohne Bilder geht alles weiter)
-  let icons = {};
-  api('getDeviceIcons').then(r => { icons = r.icons || {}; if (Object.keys(icons).length) scheduleRender(); }).catch(() => {});
-  const exposedSet = new Map(); // gerade umgeschaltete Freigaben, bis die Bridge sie bestätigt
-
-  // ---------- Zellen ----------
-  function exposeCell(d) {
-    if (d.keyDevice) return h('span', { class: 'muted', text: '–', title: 'Taster haben keine eigene Kachel in Apple Home; in den Automationen als Auslöser nutzbar.' });
-    const box = h('input', { type: 'checkbox', checked: !!d.exposed, 'aria-label': d.name + ' in Apple Home freigeben' });
-    box.addEventListener('change', async () => {
+  // Gerät löschen (von der Geräteseite hierher verlegt, Wunsch Thomas): Werkseinstellung + aus der CCU entfernen,
+  // mit Schieberegler-Rückfrage; nur für löschbare Funkgeräte (nicht Zentrale/intern), nur Administratoren (prüft der Server).
+  // Namen ändern (Wunsch Thomas): gleiche Speicherung wie auf der Geräteseite (setDeviceName) – der Name gilt dort und in Apple Home.
+  let rowsByDevice = new Map(), extraRows = [], extraRooms = {};
+  // Integrationen je Firma (Wunsch Thomas): gleiche Möglichkeiten wie bei den CCU-Geräten – Name, Raum, Gewerk, aktueller Wert, Zustand
+  const extrasBox = h('div'); main.append(extrasBox);
+  const FIRMS = { tasmota: ['Tasmota', '/tasmota.html'], smartplus: ['SMART+ (LEDVANCE)', '/smartplus.html'], smartlife: ['Smart Life (Tuya)', '/smartlife.html'], dyson: ['Dyson', '/dyson.html'], jeep: ['Jeep', '/jeep.html'] };
+  const RENAME = { jeep: d => ['setJeepName', { address: d.address }], tasmota: d => ['setTasmotaDevice', { id: d.id }], smartplus: d => ['setWifiDevice', { address: d.address }], smartlife: d => ['setWifiDevice', { address: d.address }], dyson: d => ['setWifiDevice', { address: d.address }] };
+  // Messwerte mit „Stand“ (Wunsch Thomas): alle Werte, die das Gerät liefert, und von wann sie sind (getLetzteWerte)
+  let werte = {};
+  const loadWerte = () => api('getLetzteWerte').then(r => { werte = r.devices || {}; }).catch(() => {});
+  const standText = iso => { const t = new Date(iso); if (!Number.isFinite(t.getTime())) return ''; const hm = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr'; return new Date().toDateString() === t.toDateString() ? 'heute ' + hm : t.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' + hm; };
+  const standOf = key => { const w = werte[key]; return w ? 'Stand: ' + (w.at ? standText(w.at) : (w.hint || 'unbekannt')) : ''; };
+  function werteArea(key) {
+    const w = werte[key]; if (!w) return null;
+    return h('div', { class: 'werte' }, h('h3', { text: 'Messwerte' }), ...w.values.map(([k, v]) => h('div', { text: k + ': ' + v })), ...w.flags.map(f => h('span', { class: 'tag bad', text: f })), h('span', { class: 'sub', text: standOf(key) }));
+  }
+  function extraValue(d) { const s = d.currentState || {}; if (d.provider === 'jeep') return s.value == null ? '' : Number(s.value).toLocaleString('de-DE') + ' ' + (s.unit || ''); if (typeof s.on === 'boolean') return s.on ? 'Ein' : 'Aus'; const p = []; if (Number.isFinite(s.temperature)) p.push(s.temperature.toLocaleString('de-DE') + ' °C'); if (Number.isFinite(s.humidity)) p.push(s.humidity.toLocaleString('de-DE') + ' %'); if (Number.isFinite(s.power)) p.push(s.power.toLocaleString('de-DE') + ' W'); return p.join(' · '); }
+  function extraItem(d) {
+    const name = h('input', { type: 'text', maxlength: 64, value: d.name || '' }), saveName = h('button', { class: 'btn small primary', type: 'button', text: 'Name übernehmen' }), o = h('span', { class: 'msg', role: 'status' });
+    saveName.addEventListener('click', () => task(saveName, o, async () => { const [m, p] = RENAME[d.provider](d); await api(m, { ...p, name: name.value.trim() }); await loadRows(); return 'Gespeichert.'; }, 'Wird gespeichert …'));
+    const room = h('select', { 'aria-label': 'Raum' }, h('option', { value: '', text: 'Kein Raum' }), ...((data && data.raeume) || []).map(n => h('option', { value: n, text: n }))); room.value = extraRooms[d.address] || '';
+    const gw = h('select', { 'aria-label': 'Gewerk' }, h('option', { value: '', text: 'Kein Gewerk' }), ...((data && data.gewerke) || []).map(n => h('option', { value: n, text: n }))); gw.value = (data && data.gewerkJe && data.gewerkJe[d.address]) || '';
+    const savePlace = h('button', { class: 'btn small primary', type: 'button', text: 'Übernehmen' });
+    savePlace.addEventListener('click', () => task(savePlace, o, async () => { await api('setGeraetRaumGewerk', { address: d.address, room: room.value, gewerk: gw.value }); await load(true); await loadRows(); return 'Gespeichert.'; }, 'Wird gespeichert …'));
+    // Entfernen (wie auf der Tasmota-Seite): ganzes Tasmota-Gerät aus Oberfläche, Apple Home und Automationen; am Gerät selbst ändert sich nichts
+    let removeBox = null;
+    if (d.provider === 'tasmota') {
+      const rm = h('button', { class: 'btn small danger', type: 'button', text: 'Gerät entfernen' });
+      rm.addEventListener('click', async () => {
+        if (!await NEU.confirmDialog({ title: '„' + (d.name || d.address) + '“ entfernen?', text: 'Das Tasmota-Gerät (mit allen Kanälen) verschwindet aus dieser Oberfläche, aus Apple Home und aus der Auswahl der Automationen. Am Gerät selbst wird nichts geändert.', confirm: 'Entfernen', danger: true })) return;
+        task(rm, o, async () => { const t = await api('getTasmotaDevices'); const mac = (t.devices || []).find(x => x.id === d.id)?.mac; if (!mac) throw Error('Gerät nicht mehr vorhanden'); const r = await api('removeTasmota', { mac }); await loadRows(); return r.message || 'Entfernt.'; }, 'Wird entfernt …');
+      });
+      removeBox = h('div', {}, h('h3', { text: 'Entfernen' }), rm);
+    }
+    const val = extraValue(d), online = linkIcon(d.online !== false), home = homeIcon(d.exposed === true, d.address);
+    const hs = headSwitch([d]);
+    return h('details', { class: 'auto-item' }, h('summary', {}, ...hs, symbole(online, meldDot(d), home), h('b', { text: d.name || d.address }), val && !hs.length ? h('span', { class: 'tag ok', text: val }) : null, h('span', { class: 'muted', text: ' · ' + (extraRooms[d.address] || 'kein Raum') + (standOf(d.address) ? ' · ' + standOf(d.address) : '') }), ' '),
+      h('div', { class: 'auto-body' }, bedienArea([d], d), ...(() => {
+        const werteBox = d.provider === 'jeep' ? null : werteArea(d.address), placeBox = h('div', {}, h('h3', { text: 'Raum und Gewerk' }), h('div', { class: 'row' }, field('Raum', room), field('Gewerk', gw), savePlace), o);
+        return [h('div', { class: 'gv-duo' }, werteBox, placeBox), h('h3', { text: 'Name' }), h('div', { class: 'row' }, name, saveName)];
+      })(),
+        h('p', { class: 'muted mono', text: d.address }), h('a', { class: 'btn small', href: FIRMS[d.provider]?.[1] || '#', text: 'Einstellungen bei ' + (FIRMS[d.provider]?.[0] || d.provider) }), removeBox));
+  }
+  function renderExtras() {
+    const groups = new Map(); for (const d of extraRows) { if (!FIRMS[d.provider]) continue; if (!groups.has(d.provider)) groups.set(d.provider, []); groups.get(d.provider).push(d); }
+    extrasBox.replaceChildren(...[...groups].map(([p, list]) => panel(FIRMS[p][0] + ' (' + list.length + ')', 'Geräte aus der Integration ' + FIRMS[p][0] + '.', h('div', { class: 'auto-list' }, ...list.sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')).map(extraItem)))));
+  }
+  // ---------- Bedienung & Apple Home (nur Seite „Geräte (neu)“) ----------
+  // Gleiche Bridge-Aufrufe wie die Seite „Geräte“; je Eintrag der Geräteliste (Kanal bzw. WLAN-Gerät) eine Zeile.
+  let recordOff = new Set();
+  const notice = h('div', { class: 'notice warn', hidden: true, text: 'Neustart nötig: Eine geänderte Freigabe wird erst nach einem Neustart der Bridge wirksam (System → Wartung & Neustart).' });
+  const CONTROL = { smartplus: 'controlSmartplus', smartlife: 'controlSmartlife', dyson: 'controlDyson', tasmota: 'controlTasmota' };
+  function exposeBox(x, o) {
+    const box = h('input', { type: 'checkbox', checked: !!x.exposed, 'aria-label': (x.name || x.address) + ' in Apple Home' });
+    box.addEventListener('change', () => task(null, o, async () => {
       box.disabled = true;
       try {
-        const r = d.provider === 'jeep' ? await post('setJeepExposed', { address: d.address, exposed: box.checked }) : d.provider === 'tasmota' ? await post('setTasmotaDevice', { id: d.id, exposed: box.checked }) : d.provider ? await post('setWifiDevice', { address: d.address, exposed: box.checked }) : await post('setDeviceExposed', { address: d.address, exposed: box.checked });
-        d.exposed = box.checked; exposedSet.set(d.address, { value: box.checked, until: Date.now() + 20000 }); alert.hidden = !/restart|neustart/i.test(r.message || '');
-      } catch (e) { box.checked = !!d.exposed; msg(out, e.message, 'bad'); } finally { box.disabled = false; }
-    });
-    return toggle(box);
+        const r = x.provider === 'jeep' ? await api('setJeepExposed', { address: x.address, exposed: box.checked }) : x.provider === 'tasmota' ? await api('setTasmotaDevice', { id: x.id, exposed: box.checked }) : x.provider ? await api('setWifiDevice', { address: x.address, exposed: box.checked }) : await api('setDeviceExposed', { address: x.address, exposed: box.checked });
+        x.exposed = box.checked; if (/restart|neustart/i.test(r.message || '')) notice.hidden = false;
+        // Haus-Symbol im Kopf sofort nachziehen (CCU-Gerät: in Apple Home, sobald ein Kanal freigegeben ist)
+        if (x.provider) homeIconsUpdate(x.address, box.checked); else { const dev = String(x.address).split(':')[0]; homeIconsUpdate(dev, (rowsByDevice.get(dev) || []).some(y => y.exposed)); }
+        return box.checked ? 'In Apple Home freigegeben.' : 'Aus Apple Home genommen.';
+      } catch (e) { box.checked = !!x.exposed; throw e; } finally { box.disabled = false; }
+    }));
+    return NEU.toggle(box, 'In Apple Home');
   }
-  function nameCell(d) {
-    const input = h('input', { value: d.name || d.address, maxlength: 64, 'aria-label': 'Name', style: 'min-width:180px' });
-    const save = h('button', { class: 'btn small primary', type: 'button', text: 'Speichern', hidden: true });
-    const original = d.name || d.address;
-    const changed = () => { const c = input.value.trim() !== original; save.hidden = !c; if (c) editing.add(d.address); else editing.delete(d.address); };
-    const store = async () => {
-      const name = input.value.trim(); if (!name) { input.value = original; changed(); return; } if (name === original) return;
-      save.disabled = input.disabled = true;
-      try { const r = d.keyDevice ? await post('setGeraetName', { address: d.keyBase, name }) : d.provider === 'jeep' ? await post('setJeepName', { address: d.address, name }) : d.provider === 'tasmota' ? await post('setTasmotaDevice', { id: d.id, name }) : d.provider ? await post('setWifiDevice', { address: d.address, name }) : await post('setDeviceName', { address: d.address, name }); d.name = r.name || name; d.customName = true; editing.delete(d.address); msg(out, '„' + d.name + '“ gespeichert.', 'ok'); render(); }
-      catch (e) { msg(out, 'Name konnte nicht gespeichert werden: ' + e.message, 'bad'); save.disabled = input.disabled = false; }
-    };
-    input.addEventListener('input', changed); input.addEventListener('keydown', e => { if (e.key === 'Enter') store(); if (e.key === 'Escape') { input.value = original; changed(); } });
-    save.addEventListener('click', store);
-    // Gerätebild wie in der alten CCU-Oberfläche (nur CCU-Geräte, deren Typ die CCU kennt)
-    const file = !d.provider && typeof d.address === 'string' ? icons[d.address.split(':')[0]] : null;
-    // CUxD-Geräte und Tasmota-Steckdosen: eigenes Bild im CCU-Stil (die CCU hat dafür keins)
-    const cux = !file && (d.provider === 'tasmota' || /^CUX\d/.test(String(d.address || '')));
-    const src = file ? '/geraet-bild/' + encodeURIComponent(file) : cux ? '/img/cuxd-geraet.svg' : null;
-    const img = src ? h('img', { class: 'dev-icon', src, alt: '', width: 40, height: 40, loading: 'lazy' }) : h('span', { class: 'dev-icon' });
-    return h('div', {}, h('div', { class: 'row', style: 'flex-wrap:nowrap' }, img, input, save), d.provider === 'jeep' ? h('span', { class: 'sub', text: 'Jeep · Messwert (nur lesen)' }) : d.customName ? h('span', { class: 'sub', text: 'eigener Name' }) : null);
+  function recordBox(x, o) {
+    const box = h('input', { type: 'checkbox', checked: !recordOff.has(x.address), 'aria-label': (x.name || x.address) + ' aufzeichnen' });
+    box.addEventListener('change', () => task(null, o, async () => { box.disabled = true; try { const r = await api('setRecording', { address: x.address, record: box.checked }); recordOff = new Set(r.recordOff || []); return box.checked ? 'Wird aufgezeichnet.' : 'Keine Aufzeichnung.'; } catch (e) { box.checked = !box.checked; throw e; } finally { box.disabled = false; } }));
+    return NEU.toggle(box, 'Aufzeichnen (Diagramme)');
   }
-  const pill = (on, a, b) => h('span', { class: 'tag ' + (on ? 'ok' : ''), text: on ? a : b });
-  // Art des Geräts in Worten für die Spalte „Typ“ (Wunsch Thomas): Lichtschalter, Steckdose, Dimmer, Thermostat …
-  const KINDS = { OnOffLight: 'Lichtschalter', DimmableLight: 'Dimmer', ColorTemperatureLight: 'Dimmer', ExtendedColorLight: 'Farblicht', OnOffPlugInUnit: 'Steckdose', DimmablePlugInUnit: 'Dimmer',
-    Thermostat: 'Thermostat', TemperatureSensor: 'Temperaturfühler', HumiditySensor: 'Feuchtefühler', OccupancySensor: 'Bewegungsmelder', ContactSensor: 'Fensterkontakt',
-    WindowCovering: 'Rollladen', DoorLock: 'Türschloss', GenericSwitch: 'Taster', LightSensor: 'Lichtsensor', AirPurifier: 'Luftreiniger', Fan: 'Lüfter', WaterLeakDetector: 'Wassermelder', SmokeCoAlarm: 'Rauchmelder' };
-  const PROVIDER_KINDS = { tasmota: 'Steckdose', jeep: 'Fahrzeug', dyson: 'Luftreiniger', wetter: 'Wetter' };
-  function kindLabel(d) {
-    if (d.keyDevice) return 'Taster / Fernbedienung';
-    if (d.thermostatControl?.allowed) return 'Thermostat';
-    if (d.dimmerControl?.allowed) return 'Dimmer';
-    return PROVIDER_KINDS[d.provider] || KINDS[d.matterDeviceType] || (d.switchControl?.allowed ? 'Schalter' : d.matterDeviceType || d.hmChannelType || 'Gerät');
-  }
-  // Ein Schalt-Knopf (Wunsch Thomas): zeigt Ein/Aus und schaltet beim Klick um. Zustand unbekannt → Klick schaltet ein.
-  function onOffButton(state, run) {
-    const on = state === true, off = state === false;
-    const b = h('button', { class: 'btn small onoff' + (on ? ' primary' : ''), type: 'button', text: on ? 'Ein' : off ? 'Aus' : 'Unbekannt', title: on ? 'Klicken zum Ausschalten' : 'Klicken zum Einschalten', 'aria-pressed': on ? 'true' : 'false' });
-    b.addEventListener('click', () => run(!on, b));
-    return b;
-  }
-  // Messwerte des Geräts untereinander (wie bei den Smart-Life-Steckdosen) mit „Stand“ – von wann die Werte sind.
-  let werte = {};
-  const standText = iso => { const t = new Date(iso); if (!Number.isFinite(t.getTime())) return ''; const hm = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr', today = new Date().toDateString() === t.toDateString(); return today ? 'heute ' + hm : t.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' + hm; };
-  function valuesBlock(d) {
-    if (d.provider === 'jeep') return null; // Jeep zeigt Wert und Cloud-Zeit schon selbst
-    const w = werte[d.provider ? d.address : String(d.address || '').split(':')[0]]; if (!w) return null;
-    return h('div', { class: 'werte' }, ...w.values.map(([k, v]) => h('div', { text: k + ': ' + v })), ...w.flags.map(f => h('span', { class: 'tag bad', text: f })),
-      h('span', { class: 'sub', text: w.at ? 'Stand: ' + standText(w.at) : 'Stand: ' + (w.hint || 'unbekannt') }));
-  }
-  function stateCell(d) { const box = stateControl(d), w = d.keyDevice ? null : valuesBlock(d); if (!w) return box; return h('div', {}, box, w); }
-  function stateControl(d) {
-    if (d.keyDevice) return h('a', { class: 'btn small', href: '/automationen.html?assist=' + encodeURIComponent(d.keyBase), text: 'Einrichten (Assistent)' });
-    const st = d.currentState || {}, box = h('div', { class: 'row', dataset: { state: d.address } });
-    if (offline(d)) { box.append(h('span', { class: 'tag bad', text: 'Offline' })); return box; }
-    if (Number.isFinite(d.linkedPower)) box.append(h('span', { class: 'tag', title: 'Leistung laut Tasmota-Steckdose', text: d.linkedPower.toLocaleString('de-DE') + ' W' }));
-    if (d.provider === 'jeep') { const t = new Date(st.timestamp); box.append(h('div', {}, h('b', { text: st.value === null || st.value === undefined ? 'Kein Messwert' : Number(st.value).toLocaleString('de-DE') + ' ' + (st.unit || '') }), h('span', { class: 'sub', text: (st.stale ? 'Letzter gespeicherter Wert' : 'Cloud-Daten') + (Number.isFinite(t.getTime()) ? ' · ' + t.toLocaleString('de-DE') : '') }))); return box; }
-    if (d.provider) {
-      if ((d.capabilities || {}).kind !== 'sensor' && PROVIDERS[d.provider]) box.append(onOffButton(st.on, (on, b) => wifiControl(d, { on }, b)));
-      if (d.wifiUrl) box.append(h('a', { class: 'btn small', href: d.wifiUrl, text: 'Mehr' }));
-      return box;
+  function controlOf(x, o) {
+    const st = x.currentState || {}, btn = (text, cls, fn) => { const b = h('button', { class: 'btn small ' + (cls || ''), type: 'button', text }); b.addEventListener('click', () => task(b, o, fn, 'Wird übergeben …')); return b; };
+    if (x.provider === 'jeep') return h('span', { class: 'muted', text: 'Messwert (nur lesen)' });
+    if (x.provider) return CONTROL[x.provider] && (x.capabilities || {}).kind !== 'sensor' && typeof st.on === 'boolean'
+      ? (() => { const b = NEU.powerButton(artOf(x), st.on === true, x.name || x.address); b.addEventListener('click', () => task(b, o, async () => { const r = await api(CONTROL[x.provider], { id: x.id, command: { on: !st.on } }); setTimeout(loadRows, 1500); return r.message || 'Befehl übergeben.'; }, 'Wird übergeben …')); return b; })() : null;
+    if (x.thermostatControl?.allowed) {
+      const t = x.thermostatState || {}, cap = x.thermostatControl, inp = h('input', { type: 'number', min: cap.min, max: cap.max, step: cap.step || 0.5, value: Number.isFinite(t.setpoint) ? t.setpoint : '', style: 'max-width:90px', 'aria-label': 'Solltemperatur' });
+      return h('div', { class: 'row' }, h('span', { text: 'Ist ' + (Number.isFinite(t.temperature) ? t.temperature.toFixed(1).replace('.', ',') + ' °C' : '–') + ' · Soll' }), inp, h('span', { text: '°C' }),
+        btn('Übernehmen', 'primary', async () => { if (!inp.reportValidity() || inp.value === '') throw Error('Bitte eine gültige Temperatur eingeben.'); const r = await api('setThermostatTemperature', { address: x.address, temperature: Number(inp.value) }); setTimeout(loadRows, 1500); return r.message || 'Übergeben.'; }));
     }
-    if (d.thermostatControl && d.thermostatControl.allowed) {
-      const t = d.thermostatState || {}, b = h('button', { class: 'btn small', type: 'button', text: 'Ist ' + (Number.isFinite(t.temperature) ? t.temperature.toFixed(1) + ' °C' : '–') + ' · Soll ' + (Number.isFinite(t.setpoint) ? t.setpoint.toFixed(1) + ' °C' : '–') });
-      b.addEventListener('click', () => thermostatDialog(d)); box.append(b); return box;
+    if (x.dimmerControl?.allowed) {
+      const lvl = st.currentLevel, pct = typeof lvl === 'number' ? Math.round(lvl / 254 * 100) : 0, range = h('input', { type: 'range', min: 0, max: 100, value: pct, style: 'accent-color:#176c60', 'aria-label': 'Helligkeit' }), val = h('b', { text: pct + ' %' });
+      range.addEventListener('input', () => { val.textContent = range.value + ' %'; });
+      const set = p => async () => { const r = await api('setDimmerLevel', { address: x.address, percent: p() }); setTimeout(loadRows, 1500); return r.message || 'Übergeben.'; };
+      return h('div', { class: 'row' }, range, val, btn('Übernehmen', 'primary', set(() => Number(range.value))), btn('Aus', '', set(() => 0)));
     }
-    if (d.dimmerControl && d.dimmerControl.allowed) {
-      const lvl = st.currentLevel, pct = typeof lvl === 'number' && lvl >= 0 && lvl <= 254 ? Math.round(lvl / 254 * 100) : null;
-      const b = h('button', { class: 'btn small' + (pct > 0 ? ' primary' : ''), type: 'button', text: 'Helligkeit ' + (pct === null ? '–' : pct + ' %') }); b.addEventListener('click', () => dimmerDialog(d)); box.append(b); return box;
-    }
-    if (d.switchControl && d.switchControl.allowed) {
-      box.append(onOffButton(d.switchState, on => switchControl(d, on, box)));
-      return box;
-    }
-    // reine Anzeige (Sensoren, Rollläden, Kontakte …)
-    if ('onOff' in st) box.append(pill(!!st.onOff, 'Ein', 'Aus'));
-    else if ('currentPositionLiftPercent100ths' in st) box.append(h('span', { text: Math.max(0, Math.min(100, Math.round(100 - (st.currentPositionLiftPercent100ths || 0) / 100))) + ' % offen' }));
-    else if ('occupancy' in st) box.append(pill((st.occupancy & 1) === 1, 'Bewegung', 'Ruhe'));
-    else if ('stateValue' in st) box.append(pill(!st.stateValue, 'Offen', 'Geschlossen'));
-    else if ('lockState' in st) box.append(pill(st.lockState === 1, 'Verriegelt', 'Offen'));
-    else if (Number.isFinite(st.localTemperature)) box.append(h('span', { text: (st.localTemperature / 100).toFixed(1) + ' °C' + (Number.isFinite(st.occupiedHeatingSetpoint) ? ' → ' + (st.occupiedHeatingSetpoint / 100).toFixed(1) + ' °C' : '') }));
-    else if (Number.isFinite(st.measuredValue)) box.append(h('span', { text: (st.measuredValue / 100).toFixed(1) }));
-    else box.append(h('span', { class: 'muted', text: '–' }));
-    if (d.matterDeviceType === 'WindowCovering') {
-      const sel = h('select', { 'aria-label': 'Lamellen', style: 'max-width:170px' }, h('option', { value: 'auto', text: 'Automatisch (' + (d.hasTilt ? 'mit Lamellen' : 'nur Höhe') + ')', selected: d.tiltOverride === null || d.tiltOverride === undefined }), h('option', { value: 'true', text: 'Mit Lamellen', selected: d.tiltOverride === true }), h('option', { value: 'false', text: 'Nur Höhe', selected: d.tiltOverride === false }));
-      sel.addEventListener('change', async () => { const tilt = sel.value === 'auto' ? null : sel.value === 'true'; sel.disabled = true; try { await post('setDeviceTilt', { address: d.address, tilt }); d.tiltOverride = tilt; alert.hidden = false; } catch (e) { msg(out, e.message, 'bad'); } finally { sel.disabled = false; } });
-      box.append(sel);
-    }
-    return box;
-  }
-  function roomCell(d) {
-    // WLAN-, Tasmota-, Dyson- und Jeep-Einträge: Räume aus der eigenen Raumliste der Bridge
-    if (d.provider || d.keyDevice) {
-      const cur = ownRooms.assign[d.address] || '';
-      const sel = h('select', { 'aria-label': 'Raum für ' + d.name, style: 'min-width:150px' }, h('option', { value: '', text: 'Kein Raum' }), h('option', { value: '__new', text: '＋ Neuer Raum …' }), rooms.map(r => h('option', { value: r.originalName, text: r.name })));
-      sel.value = cur && rooms.some(r => r.originalName === cur) ? cur : '';
-      sel.addEventListener('change', async () => {
-        let target = sel.value; sel.disabled = true;
-        try {
-          if (target === '__new') { const name = await askRoomName(); if (!name) { sel.value = cur; return; } if (!rooms.some(r => r.name === name)) await post('createRoom', { name }); target = name; }
-          await post('setGeraetRaum', { address: d.address, room: target }); msg(out, 'Raum gespeichert.', 'ok'); await load(true);
-        } catch (e) { msg(out, e.message, 'bad'); sel.value = cur; }
-        finally { sel.disabled = false; }
-      });
+    if (x.switchControl?.allowed) { const s = x.switchState, b = NEU.powerButton(artOf(x), s === true, x.name || x.address); b.addEventListener('click', () => task(b, o, async () => { const r = await api('setSwitchState', { address: x.address, state: s !== true }); setTimeout(loadRows, 1500); return r.message || 'Übergeben.'; }, 'Wird übergeben …')); return b; }
+    if (x.matterDeviceType === 'WindowCovering') {
+      const sel = h('select', { 'aria-label': 'Lamellen' }, h('option', { value: 'auto', text: 'Lamellen: automatisch' }), h('option', { value: 'true', text: 'Mit Lamellen' }), h('option', { value: 'false', text: 'Nur Höhe' }));
+      sel.value = x.tiltOverride === true ? 'true' : x.tiltOverride === false ? 'false' : 'auto';
+      sel.addEventListener('change', () => task(null, o, async () => { await api('setDeviceTilt', { address: x.address, tilt: sel.value === 'auto' ? null : sel.value === 'true' }); notice.hidden = false; return 'Gespeichert.'; }));
       return sel;
     }
-    const sel = h('select', { 'aria-label': 'Raum für ' + d.name, style: 'min-width:150px', title: 'Ändert die CCU-Raumzuordnung. Eine neue Auswahl ersetzt alle bisherigen.' },
-      h('option', { value: '', text: 'Kein Raum' }), h('option', { value: '__new', text: '＋ Neuer Raum …' }), rooms.map(r => h('option', { value: r.originalName, text: r.name })));
-    if (d.roomId && !rooms.some(r => r.originalName === d.roomId)) sel.append(h('option', { value: d.roomId, text: d.room }));
-    sel.value = d.roomId || '';
-    if (d.ccuRooms && d.ccuRooms.length > 1) { sel.append(h('option', { value: '__multi', disabled: true, text: d.ccuRooms.join(', ') + ' (mehrere)' })); sel.value = '__multi'; }
-    sel.addEventListener('change', async () => {
-      let target = sel.value; sel.disabled = true;
-      try {
-        if (target === '__new') {
-          const name = await askRoomName(); if (!name) { sel.value = d.roomId || ''; return; }
-          if (!rooms.some(r => r.name === name)) await post('createRoom', { name }); target = name;
-        }
-        await post('setDeviceRoom', { address: d.address, room: target }); msg(out, 'Raum gespeichert.', 'ok'); await load(true);
-      } catch (e) { msg(out, e.message, 'bad'); sel.value = d.ccuRooms && d.ccuRooms.length > 1 ? '__multi' : d.roomId || ''; }
-      finally { sel.disabled = false; }
+    return null;
+  }
+  // „Geräte (neu)“: Ein/Aus-Knopf im Kopf (Wunsch Thomas 13.10.2026) – Klick schaltet, ohne das Gerät aufzuklappen
+  // Alle schaltbaren Geräte (Schalter, Dimmer, Lampen, Tasmota, Dyson); Knöpfe stehen ganz rechts in der Zeile
+  function headSwitch(rows) {
+    const dimOn = x => { const l = (x.currentState || {}).currentLevel; return typeof l === 'number' && l > 0; };
+    const knoepfe = rows.filter(x => x.switchControl?.allowed || x.dimmerControl?.allowed || x.thermostatControl?.allowed || (x.provider && CONTROL[x.provider] && (x.capabilities || {}).kind !== 'sensor' && typeof (x.currentState || {}).on === 'boolean')).slice(0, 3).map(x => {
+      // Heizkörperthermostate (Wunsch Thomas 13.10.2026): Knopf zeigt die Solltemperatur, Klick öffnet − / + / Übernehmen
+      if (x.thermostatControl?.allowed && !x.switchControl?.allowed) {
+        const t = x.thermostatState || {}, sp = Number.isFinite(t.setpoint) ? t.setpoint : null;
+        const b = h('button', { class: 'btn small primary', type: 'button', text: sp === null ? '– °C' : de1(sp) + ' °C', title: (x.name || x.address) + ' – Solltemperatur einstellen' + (Number.isFinite(t.temperature) ? ' (Ist ' + de1(t.temperature) + ' °C)' : ''), 'aria-label': (x.name || x.address) + ' Solltemperatur ' + (sp === null ? 'unbekannt' : de1(sp) + ' Grad') + ', einstellen' });
+        b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); tempPop(b, x); });
+        return b;
+      }
+      const on = x.provider ? x.currentState.on === true : x.switchControl?.allowed ? x.switchState === true : dimOn(x);
+      // %-Geräte (Dimmer, dimmbare Lampen): Knopf zeigt den Wert, Klick öffnet ein kleines Fenster mit Schieberegler (Wunsch Thomas 13.10.2026)
+      const pct = x.dimmerControl?.allowed && !x.provider ? Math.round(((x.currentState || {}).currentLevel || 0) / 254 * 100) : x.provider && (x.capabilities || {}).brightness ? (on ? Math.round(Number((x.currentState || {}).brightness) || 100) : 0) : null;
+      if (pct !== null) {
+        // Glühbirne mit Prozentwert; Klick öffnet das kleine Fenster mit Schieberegler
+        const b = NEU.powerButton('licht', pct > 0, x.name || x.address, e => { e.preventDefault(); e.stopPropagation(); percentPop(b, x, pct); });
+        b.classList.add('mit-wert'); b.append(h('span', { class: 'pw-wert', text: pct > 0 ? pct + ' %' : 'aus' })); b.title = (x.name || x.address) + ' – ' + (pct > 0 ? pct + ' %' : 'aus') + ' (klicken zum Einstellen)';
+        return b;
+      }
+      // Ein/Aus als Symbol (Wunsch Thomas 13.10.2026): Glühbirne, Stecker oder Ventilator – farbig an, grau aus
+      const b = NEU.powerButton(artOf(x), on, x.name || x.address);
+      b.addEventListener('click', async e => {
+        e.preventDefault(); e.stopPropagation(); b.disabled = true; b.classList.add('wartet');
+        try {
+          if (x.provider) await api(CONTROL[x.provider], { id: x.id, command: { on: !on } });
+          else if (x.switchControl?.allowed) await api('setSwitchState', { address: x.address, state: !on });
+          else await api('setDimmerLevel', { address: x.address, percent: on ? 0 : 100 });
+          setTimeout(loadRows, 1500);
+        } catch (err) { b.classList.remove('wartet'); b.classList.add('fehler'); b.title = 'Fehler: ' + (err.message || 'Schalten fehlgeschlagen'); b.disabled = false; }
+      });
+      return b;
     });
-    return sel;
+    return knoepfe.length ? [h('span', { class: 'gv-kopf-knopf' }, ...knoepfe)] : [];
   }
-  function typeCell(d) {
-    // Nur die Art in Worten (Wunsch Thomas); technische Angaben stehen in der Geräteverwaltung und im Hinweis.
-    return h('span', { text: kindLabel(d), title: [d.hmChannelType || d.hmDeviceType, d.matterDeviceType, d.address].filter(Boolean).join(' · ') });
+  const de1 = v => Number(v).toFixed(1).replace('.', ',');
+  // passendes Symbol: Licht (Dimmer/Lampen), Ventilator (Dyson), sonst Stecker (Steckdose/Schalter)
+  const artOf = x => x.provider === 'dyson' ? 'luefter' : x.dimmerControl?.allowed || (x.capabilities || {}).brightness || (x.capabilities || {}).kind === 'light' || /Light/.test(x.matterDeviceType || '') ? 'licht' : 'stecker';
+  // Kleines Fenster unter dem Knopf (gemeinsam für % und °C); schließt bei Klick daneben oder Esc
+  let popOpen = null;
+  function showPop(anchor, pop) {
+    popOpen?.close();
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + window.scrollY + 6) + 'px'; pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 288, r.right - 280)) + window.scrollX) + 'px';
+    document.body.append(pop);
+    const outside = e => { if (!pop.contains(e.target) && e.target !== anchor) close(); }, esc = e => { if (e.key === 'Escape') close(); };
+    function close() { pop.remove(); document.removeEventListener('mousedown', outside); document.removeEventListener('keydown', esc); if (popOpen?.pop === pop) popOpen = null; }
+    setTimeout(() => { document.addEventListener('mousedown', outside); document.addEventListener('keydown', esc); }, 0);
+    popOpen = { pop, close }; return close;
   }
-  // Aufzeichnen für die Diagramme (auf der CCU und – falls eingeschaltet – auf der WD); Standard: ja.
-  let recordOff = new Set();
-  const loadRecording = () => api('getNetStorage').then(r => { recordOff = new Set(r.recordOff || []); }).catch(() => {});
-  function recordCell(d) {
-    if (d.keyDevice) return h('span', { class: 'muted', text: '–' });
-    const box = h('input', { type: 'checkbox', checked: !recordOff.has(d.address), 'aria-label': d.name + ' aufzeichnen' });
-    box.addEventListener('change', async () => {
-      box.disabled = true;
-      try { const r = await post('setRecording', { address: d.address, record: box.checked }); recordOff = new Set(r.recordOff || []); }
-      catch (e) { box.checked = !box.checked; msg(out, e.message, 'bad'); } finally { box.disabled = false; }
+  function tempPop(anchor, x) {
+    const cap = x.thermostatControl, t = x.thermostatState || {}, step = cap.step || 0.5, min = cap.min, max = cap.max;
+    let v = Number.isFinite(t.setpoint) ? t.setpoint : Math.min(max, Math.max(min, 20));
+    const val = h('b', { text: de1(v) + ' °C' }), msg = h('p', { class: 'msg', role: 'status' }); let close = () => {};
+    const nudge = d => { v = Math.round(Math.min(max, Math.max(min, v + d)) / step) * step; val.textContent = de1(v) + ' °C'; };
+    const small = (text, fn, label) => { const b = h('button', { class: 'btn small', type: 'button', text, 'aria-label': label }); b.addEventListener('click', fn); return b; };
+    const go = h('button', { class: 'btn small primary', type: 'button', text: 'Übernehmen' });
+    go.addEventListener('click', () => task(go, msg, async () => { const r = await api('setThermostatTemperature', { address: x.address, temperature: v }); setTimeout(loadRows, 1500); setTimeout(() => close(), 800); return r.message || 'Übergeben.'; }, 'Wird übergeben …'));
+    const pop = h('div', { class: 'gv-pop', role: 'dialog', 'aria-label': (x.name || x.address) + ' – Solltemperatur' },
+      h('div', { class: 'row', style: 'justify-content:space-between' }, h('b', { text: x.name || x.address }), h('span', { class: 'muted', text: Number.isFinite(t.temperature) ? 'Ist ' + de1(t.temperature) + ' °C' : '' })),
+      h('div', { class: 'row', style: 'justify-content:center;gap:12px' }, small('−', () => nudge(-step), 'Kälter'), val, small('+', () => nudge(step), 'Wärmer')),
+      h('div', { class: 'row' }, go, h('span', { class: 'muted', text: de1(min) + ' bis ' + de1(max) + ' °C' })), msg);
+    close = showPop(anchor, pop); go.focus();
+  }
+  function percentPop(anchor, x, pct) {
+    popOpen?.close();
+    const range = h('input', { type: 'range', min: 0, max: 100, step: 1, value: pct, style: 'width:100%;accent-color:#176c60', 'aria-label': 'Helligkeit' }), val = h('b', { text: pct + ' %' }), msg = h('p', { class: 'msg', role: 'status' });
+    range.addEventListener('input', () => { val.textContent = range.value + ' %'; });
+    const set = p => async () => {
+      if (x.provider) { const r = await api(CONTROL[x.provider], { id: x.id, command: p > 0 ? { on: true, brightness: p } : { on: false } }); setTimeout(loadRows, 1500); return r.message || 'Übergeben.'; }
+      const r = await api('setDimmerLevel', { address: x.address, percent: p }); setTimeout(loadRows, 1500); return r.message || 'Übergeben.';
+    };
+    const btn = (text, cls, fn) => { const b = h('button', { class: 'btn small ' + (cls || ''), type: 'button', text }); b.addEventListener('click', () => task(b, msg, async () => { const m = await fn(); setTimeout(() => close(), 800); return m; }, 'Wird übergeben …')); return b; };
+    const pop = h('div', { class: 'gv-pop', role: 'dialog', 'aria-label': (x.name || x.address) + ' – Helligkeit' }, h('div', { class: 'row', style: 'justify-content:space-between' }, h('b', { text: x.name || x.address }), val), range,
+      h('div', { class: 'row' }, btn('Ein (100 %)', '', set(100)), btn('Aus', '', set(0)), btn('Übernehmen', 'primary', () => set(Number(range.value))())), msg);
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + window.scrollY + 6) + 'px'; pop.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - 288, r.right - 280)) + window.scrollX) + 'px';
+    document.body.append(pop);
+    const outside = e => { if (!pop.contains(e.target) && e.target !== anchor) close(); }, esc = e => { if (e.key === 'Escape') close(); };
+    function close() { pop.remove(); document.removeEventListener('mousedown', outside); document.removeEventListener('keydown', esc); if (popOpen?.pop === pop) popOpen = null; }
+    setTimeout(() => { document.addEventListener('mousedown', outside); document.addEventListener('keydown', esc); }, 0);
+    popOpen = { pop, close }; range.focus();
+  }
+  // Meldungen je Gerät abschalten (nur „Geräte (neu)“): CCU-Geräte → Systemzustand/Batterie-WhatsApp, Tasmota/WLAN → Ausfall-WhatsApp
+  // Roter Punkt vorne im Kopf, wenn die Meldungen des Geräts abgeschaltet sind (Wunsch Thomas 13.10.2026)
+  function meldOn(d) {
+    const mac = d.provider === 'tasmota' ? (/^([a-f0-9]{12})-\d{1,2}$/.exec(String(d.id || '')) || [])[1] : null;
+    if (isCux(d)) return (cuxSet[d.address] || {}).enabled === true;
+    if (!d.provider) return !meldAus.has(d.address);
+    if (mac && mac in tWache) return tWache[mac] !== false;
+    if (['smartplus', 'smartlife', 'dyson'].includes(d.provider)) return d.address in wifiCheck ? wifiCheck[d.address] : d.provider !== 'dyson';
+    return true;
+  }
+  // WhatsApp-Symbol im Kopf (Wunsch Thomas 13.10.2026, statt rotem Punkt): grün = Meldungen per WhatsApp an, grau = abgeschaltet.
+  // Nur bei Geräten, für die es eine Meldung gibt (CCU, CUxD, Tasmota, SMART+, Smart Life, Dyson).
+  const hasMeld = d => isCux(d) || !d.provider || (d.provider === 'tasmota' && /^[a-f0-9]{12}-\d{1,2}$/.test(String(d.id || ''))) || ['smartplus', 'smartlife', 'dyson'].includes(d.provider);
+  const BUBBLE = 'M12 2.2A9.7 9.7 0 0 0 3.6 16.8L2.3 21.7l5-1.3A9.7 9.7 0 1 0 12 2.2Zm4.7 13.6c-.2.6-1.2 1.2-1.7 1.2-.5.1-1 .2-3.2-.7-2.7-1.1-4.4-3.8-4.5-4-.1-.2-1.1-1.4-1.1-2.7s.7-1.9.9-2.2c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .6l-.4.6-.4.4c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.7-.1l1.9.9c.3.1.5.2.5.4.1.1.1.7-.1 1.3Z';
+  // Alle Symbole hinten in der Zeile, direkt vor dem Bedienknopf (Wunsch Thomas 13.10.2026)
+  const symbole = (...xs) => { const k = xs.filter(Boolean); return k.length ? h('span', { class: 'gv-symbole' }, ...k) : null; };
+  const icon = d0 => { const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'), p = document.createElementNS(ns, 'path'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); p.setAttribute('d', d0); svg.append(p); return svg; };
+  // key: Gerät (CCU) bzw. Eintrag (Integration) – damit „In Apple Home“ das Symbol sofort mitändert
+  // Matter-Symbol statt Haus (Wunsch Thomas 13.10.2026): drei verbundene Punkte im Dreieck – farbig = für die Home-App (Matter) freigegeben, grau = nicht
+  const MATTER = 'M12 2.6a2.6 2.6 0 0 1 1.1 5l2.9 5.2a2.6 2.6 0 1 1-1.7 1L11.4 8.6a2.7 2.7 0 0 1-.5 0L8 13.8a2.6 2.6 0 1 1-1.7-1l2.9-5.2a2.6 2.6 0 0 1 2.8-5ZM9.7 17.5h4.6a2.6 2.6 0 1 0 0-2H9.7a2.6 2.6 0 1 0 0 2Z';
+  const homeText = on => on ? 'Matter / Home-App: freigegeben' : 'Matter / Home-App: nicht freigegeben';
+  function homeIcon(on, key) {
+    const text = homeText(on);
+    return h('span', { class: 'gv-home ' + (on ? 'an' : 'aus'), title: text, role: 'img', 'aria-label': text, dataset: { home: key || '' } }, icon(MATTER));
+  }
+  function homeIconsUpdate(key, on) { document.querySelectorAll('.gv-home').forEach(el => { if (el.dataset.home === key) { const t = homeText(on); el.className = 'gv-home ' + (on ? 'an' : 'aus'); el.title = t; el.setAttribute('aria-label', t); } }); }
+  // Verbindung (Wunsch Thomas 13.10.2026, statt „nicht erreichbar“/„offline“): WLAN-Symbol, grün = erreichbar, grau = nicht erreichbar
+  const WIFI = 'M12 18.5a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6Zm0-5.2c1.9 0 3.6.8 4.9 2a1 1 0 1 1-1.4 1.4 4.9 4.9 0 0 0-7 0 1 1 0 1 1-1.4-1.4 6.9 6.9 0 0 1 4.9-2Zm0-5.2c3.3 0 6.3 1.3 8.5 3.5a1 1 0 0 1-1.4 1.4A10 10 0 0 0 12 10.1a10 10 0 0 0-7.1 2.9 1 1 0 0 1-1.4-1.4A12 12 0 0 1 12 8.1Zm0-5.2c4.7 0 9 1.9 12.1 5a1 1 0 1 1-1.4 1.4A15 15 0 0 0 12 4.9 15 15 0 0 0 1.3 9.3 1 1 0 0 1-.1-1.4A17 17 0 0 1 12 2.9Z';
+  function linkIcon(on) { const text = on ? 'Erreichbar' : 'Nicht erreichbar – ausgesteckt, ohne Strom oder außer Reichweite?'; return h('span', { class: 'gv-link ' + (on ? 'an' : 'aus'), title: text, role: 'img', 'aria-label': on ? 'erreichbar' : 'nicht erreichbar' }, icon(WIFI)); }
+  function meldDot(d) {
+    if (!hasMeld(d)) return null;
+    const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'), p = document.createElementNS(ns, 'path');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); p.setAttribute('d', BUBBLE); svg.append(p);
+    const on = meldOn(d);
+    return h('span', { class: 'gv-wa ' + (on ? 'an' : 'aus'), dataset: { meld: d.address }, title: on ? 'Meldungen per WhatsApp an' : 'Meldungen abgeschaltet', role: 'img', 'aria-label': on ? 'WhatsApp-Meldungen an' : 'WhatsApp-Meldungen aus' }, svg);
+  }
+  const meldDotsUpdate = (d, on) => document.querySelectorAll('.gv-wa').forEach(el => { if (el.dataset.meld === d.address || (d.provider === 'tasmota' && String(el.dataset.meld).startsWith('tasmota@' + String(d.id).split('-')[0] + '-'))) { el.className = 'gv-wa ' + (on ? 'an' : 'aus'); el.title = on ? 'Meldungen per WhatsApp an' : 'Meldungen abgeschaltet'; el.setAttribute('aria-label', on ? 'WhatsApp-Meldungen an' : 'WhatsApp-Meldungen aus'); } });
+  function meldungBox(d, o) {
+    let checked, save, text;
+    const mac = d.provider === 'tasmota' ? (/^([a-f0-9]{12})-\d{1,2}$/.exec(String(d.id || '')) || [])[1] : null;
+    if (isCux(d)) { checked = (cuxSet[d.address] || {}).enabled === true; text = 'Online prüfen (Ping an die IP aus den CUxD-Einstellungen) – WhatsApp, wenn nicht erreichbar'; save = on => api('saveCuxCheck', { address: d.address + ':1', enabled: on }).then(r => { cuxSet = r.cuxChecks || { ...cuxSet, [d.address]: { enabled: on } }; return on ? 'Onlineprüfung an.' : 'Onlineprüfung aus.'; }); }
+    else if (!d.provider) { checked = !meldAus.has(d.address); text = 'Meldungen dieses Geräts (Systemzustand, Batterie-WhatsApp)'; save = on => api('setGeraetMeldung', { address: d.address, enabled: on }).then(r => { meldAus = new Set(r.aus || []); return r.message; }); }
+    else if (mac && mac in tWache) { checked = tWache[mac] !== false; text = 'WhatsApp, wenn das Gerät 5 Minuten nicht erreichbar ist (gilt für alle Kanäle dieses Geräts)'; save = on => api('setTasmotaOnlineCheck', { mac, enabled: on }).then(r => { tWache[mac] = on; return r.message; }); }
+    else if (['smartplus', 'smartlife', 'dyson'].includes(d.provider)) { checked = d.address in wifiCheck ? wifiCheck[d.address] : d.provider !== 'dyson'; text = 'WhatsApp, wenn das Gerät nicht erreichbar ist'; save = async on => { const r = await api('setWifiDevice', { address: d.address, onlineCheck: on }); if (on && wifiIgn[d.address]) { await api('saveOfflineWarning', { id: wifiIgn[d.address], ignored: false }); delete wifiIgn[d.address]; } wifiCheck[d.address] = on; return r.message || 'Gespeichert.'; }; }
+    else return null;
+    const cb = h('input', { type: 'checkbox', checked, 'aria-label': 'Meldungen für ' + (d.name || d.address) });
+    cb.addEventListener('change', () => task(null, o, async () => { cb.disabled = true; try { const m = await save(cb.checked); meldDotsUpdate(d, cb.checked); return m; } catch (e) { cb.checked = !cb.checked; throw e; } finally { cb.disabled = false; } }, 'Wird gespeichert …'));
+    return NEU.toggle(cb, text);
+  }
+  // dev: das Gerät selbst – sein Meldungen-Schalter steht hier mit im Feld (Wunsch Thomas 13.10.2026)
+  function bedienArea(rows, dev) {
+    const mo = h('span', { class: 'msg', role: 'status' }), mb = dev ? meldungBox(dev, mo) : null, meld = mb ? h('div', { class: 'gv-bedien-zeile' }, mb, mo) : null;
+    if (!rows.length) return h('div', { class: 'gv-bedien' }, h('h3', { text: 'Bedienung & Apple Home' }), h('p', { class: 'muted', text: 'Kein Eintrag in der Geräteliste (z. B. Taster oder Fernbedienung) – in den Automationen als Auslöser nutzbar.' }), meld);
+    return h('div', { class: 'gv-bedien' }, h('h3', { text: 'Bedienung & Apple Home' }), ...rows.map(x => { const o = h('span', { class: 'msg', role: 'status' });
+      return h('div', { class: 'gv-bedien-zeile' }, h('b', { text: x.name || x.address }), controlOf(x, o), exposeBox(x, o), recordBox(x, o), o); }), meld);
+  }
+  // „Neu angelernte Geräte automatisch in Apple Home freigeben“ entfernt (Wunsch Thomas 13.10.2026: wird von Fall zu Fall
+  // entschieden). Im Bridge-Kern bleibt die Grundeinstellung „aus“ (devices.defaultExposed = false).
+  main.prepend(notice);
+  main.append(panel('Neue Geräte', null, h('div', { class: 'row' }, h('a', { class: 'btn primary', href: '/anlernen.html', text: '＋ Neues Gerät anlernen' }), h('span', { class: 'muted', text: 'Neue Geräte kommen nie automatisch in Apple Home – du gibst sie einzeln frei (Gerät aufklappen → „In Apple Home“).' }))));
+  api('getNetStorage').then(r => { recordOff = new Set(r.recordOff || []); render(); }).catch(() => {});
+  // Onlineprüfung je Tasmota-Gerät (nur „Geräte (neu)“, Wunsch Thomas 13.10.2026): mac → an/aus
+  // dazu (Wunsch Thomas 13.10.2026): Meldungen je Gerät – CCU-Geräte (meldungenAus), WLAN-Geräte (Onlineprüfung der Dienstüberwachung)
+  // Übersicht der Apple-Home-Geräte (Wunsch Thomas 13.10.2026): alles, was die Bridge an Apple Home gibt – nach Raum, mit Art und Herkunft
+  const ahBox = h('div'), AH_ART = { OnOffPlugInUnit: 'Steckdose / Schalter', OnOffLightSwitch: 'Schalter', OnOffLight: 'Licht', DimmableLight: 'Dimmer / Licht', ColorTemperatureLight: 'Licht (Weißton)', ExtendedColorLight: 'Farblicht', Thermostat: 'Heizung', WindowCovering: 'Rollladen', ContactSensor: 'Kontakt', OccupancySensor: 'Bewegung', 'Temperature / Humidity Sensor': 'Fühler', TemperatureSensor: 'Temperatur', HumiditySensor: 'Luftfeuchte', LightSensor: 'Helligkeit', DoorLock: 'Türschloss', Fan: 'Lüfter', AirPurifier: 'Luftreiniger', RoboticVacuumCleaner: 'Saugroboter' };
+  const HER = { tasmota: 'Tasmota', smartplus: 'SMART+', smartlife: 'Smart Life', dyson: 'Dyson', jeep: 'Jeep', ecovacs: 'Saugroboter' };
+  function renderAppleHome(all) {
+    if (!ahBox.isConnected) extrasBox.after(ahBox);
+    const on = all.filter(x => x.exposed === true), raum = x => x.provider ? (extraRooms[x.address] || '') : (x.room || '');
+    const byArt = new Map(); for (const x of on) { const a = AH_ART[x.matterDeviceType] || x.matterDeviceType || 'Sonstiges'; byArt.set(a, (byArt.get(a) || 0) + 1); }
+    ahBox.replaceChildren(panel('🍏 Apple Home – Übersicht', on.length + ' Einträge sind in Apple Home freigegeben (je Kanal ein Eintrag). Freigabe ändern: Gerät aufklappen → „In Apple Home“.',
+      h('div', { class: 'stats' }, NEU.stat('In Apple Home', String(on.length), 'von ' + all.length + ' möglichen', 'ok'), ...[...byArt].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([a, n]) => NEU.stat(a, String(n), ''))),
+      h('details', { class: 'more' }, h('summary', { text: 'Alle ' + on.length + ' Apple-Home-Einträge anzeigen' }),
+        on.length ? NEU.table(['Name', 'Art', 'Raum', 'Herkunft'], on.slice().sort((a, b) => (raum(a) || '~').localeCompare(raum(b) || '~', 'de') || String(a.name).localeCompare(String(b.name), 'de')).map(x => h('tr', {}, h('td', { text: x.name || x.address }), h('td', { text: AH_ART[x.matterDeviceType] || x.matterDeviceType || '–' }), h('td', { text: raum(x) || '–' }), h('td', { text: HER[x.provider] || 'Homematic' }))))
+          : h('p', { class: 'muted', text: 'Noch nichts freigegeben.' }))));
+  }
+  let tWache = {}, meldAus = new Set(), wifiCheck = {}, wifiIgn = {}, cuxSet = {};
+  const isCux = d => !d.provider && /^CUX/i.test(String(d.address || ''));
+  const opt = (m, empty) => api(m, undefined, { errorField: false }).catch(() => empty);
+  const loadRows = () => Promise.all([api('getDevices'), api('getRaumZuordnung').catch(() => ({ assign: {} })), opt('getTasmotaWache', { hosts: [] }), opt('getMeldungenAus', { aus: [] }), opt('getServiceStatus', { services: [] })]).then(([r, rz, tw, ma, ss]) => {
+    tWache = Object.fromEntries((tw.hosts || []).map(x => [x.mac, x.onlineCheck])); meldAus = new Set(ma.aus || []);
+    // altes Häkchen „bewusst ausgeschaltet“ (früher Seite Benachrichtigungen) zählt ebenfalls als „Meldungen aus“
+    const wl = (ss.services || []).filter(x => /^(smartplus|smartlife|dyson):/.test(x.id || ''));
+    wifiCheck = Object.fromEntries(wl.map(x => [String(x.id).replace(':', '@'), x.notifyEnabled !== false && x.warningIgnored !== true]));
+    wifiIgn = Object.fromEntries(wl.filter(x => x.warningIgnored === true).map(x => [String(x.id).replace(':', '@'), x.id]));
+    cuxSet = ss.cuxChecks || {}; // CUxD-Geräte: Ping-Prüfung über die IP aus PARAM9 (früher „Online prüfen“ auf der alten Geräteseite)
+    extraRows = (r.devices || []).filter(x => x.provider); extraRooms = rz.assign || {}; renderExtras(); renderAppleHome(r.devices || []); rowsByDevice = new Map(); for (const x of r.devices || []) { if (x.provider) continue; const dev = String(x.address).split(':')[0]; if (!rowsByDevice.has(dev)) rowsByDevice.set(dev, []); rowsByDevice.get(dev).push(x); } render(); }).catch(() => {});
+  loadRows();
+  const shownName = d => d.name;
+  // Ein Name für das ganze Gerät: Kanäle heißen danach „Name:Kanal“; die Einträge der Geräteseite (und Apple Home) bekommen
+  // den Namen – bei einem Eintrag genau so, bei mehreren mit Kanalnummer.
+  function nameArea(d) {
+    const rows = rowsByDevice.get(d.address) || [];
+    const input = h('input', { type: 'text', maxlength: 64, value: d.name, 'aria-label': 'Gerätename' }), save = h('button', { class: 'btn small primary', type: 'button', text: 'Name übernehmen' }), o = h('span', { class: 'msg', role: 'status' });
+    save.addEventListener('click', () => task(save, o, async () => {
+      const name = input.value.trim(); if (!name) throw Error('Bitte einen Namen eingeben.');
+      await api('setGeraetName', { address: d.address, name });
+      for (const x of rows) await api('setDeviceName', { address: x.address, name: rows.length === 1 ? name : name + ' ' + x.address.split(':')[1] });
+      await load(true); await loadRows(); return 'Gespeichert' + (rows.length ? ' – auch in der Geräteliste' + (rows.length > 1 ? ' (' + rows.length + ' Einträge mit Kanalnummer)' : '') : '') + '.';
+    }, 'Wird gespeichert …'));
+    return h('div', { class: 'gv-names' }, h('h3', { text: 'Gerätename' }), h('div', { class: 'row' }, input, save), o,
+      rows.length ? h('p', { class: 'muted', text: 'In der Geräteliste/Apple Home: ' + rows.map(x => x.name).join(', ') }) : null);
+  }
+  // Raum und Gewerk je Gerät (eigene Einstellung der Bridge; der Raum gilt für alle Kanäle des Geräts)
+  function placeArea(d) {
+    const room = h('select', { 'aria-label': 'Raum' }, h('option', { value: '', text: 'Kein Raum' }), ...(data.raeume || []).map(n => h('option', { value: n, text: n })));
+    room.value = (d.rooms || [])[0] || '';
+    const gw = h('select', { 'aria-label': 'Gewerk' }, h('option', { value: '', text: 'Kein Gewerk' }), ...(data.gewerke || []).map(n => h('option', { value: n, text: n })));
+    gw.value = (d.functions || [])[0] || '';
+    const save = h('button', { class: 'btn small primary', type: 'button', text: 'Übernehmen' }), o = h('span', { class: 'msg', role: 'status' });
+    save.addEventListener('click', () => task(save, o, async () => { await api('setGeraetRaumGewerk', { address: d.address, room: room.value, gewerk: gw.value }); await load(true); return 'Gespeichert.'; }, 'Wird gespeichert …'));
+    return h('div', { class: 'gv-place' }, h('h3', { text: 'Raum und Gewerk' }), h('div', { class: 'row' }, field('Raum', room), field('Gewerk', gw), save), o);
+  }
+  // Firmware-Update auf Klick (Wunsch Thomas): Schieberegler-Rückfrage, nur Geräte, nur Administratoren (prüft der Server)
+  // Klick auf den Hinweis startet die Installation (gleiche Rückfrage wie der Knopf)
+  function fwLink(d) { const a = h('button', { class: 'btn small primary', type: 'button', text: '⬆ Update auf ' + d.firmwareUpdate + ' installieren' }); a.addEventListener('click', () => fwInstall(d, a, null)); return a; }
+  async function fwInstall(d, btn, o) {
+    const ok = await NEU.confirmDialog({ title: 'Firmware installieren?', danger: true, slider: true, confirm: 'Installieren', text: d.name + ': Firmware ' + d.firmware + ' → ' + d.firmwareUpdate + '. Das Update dauert einige Minuten, das Gerät ist währenddessen nicht bedienbar. Gerät nicht stromlos machen. Batteriegeräte vorher kurz wecken (Taste drücken).' });
+    if (!ok) return;
+    btn.disabled = true; const out2 = o || h('span', { class: 'msg', role: 'status' }); if (!o) btn.after(out2); msg(out2, 'Update wird gestartet …', 'busy');
+    try { const r = await api('startFirmwareUpdate', { address: d.address }); msg(out2, r.message, 'ok'); } catch (e) { msg(out2, e.message, 'bad'); btn.disabled = false; }
+  }
+  function firmwareArea(d) {
+    const btn = h('button', { class: 'btn small primary', type: 'button', text: 'Firmware ' + d.firmwareUpdate + ' installieren …' }), o = h('p', { class: 'msg', role: 'status' });
+    btn.addEventListener('click', async () => {
+      const ok = await NEU.confirmDialog({ title: 'Firmware installieren?', danger: true, slider: true, confirm: 'Installieren', text: d.name + ': Firmware ' + d.firmware + ' → ' + d.firmwareUpdate + '. Das Update dauert einige Minuten, das Gerät ist währenddessen nicht bedienbar. Gerät nicht stromlos machen. Batteriegeräte vorher kurz wecken (Taste drücken).' });
+      if (!ok) return;
+      btn.disabled = true; msg(o, 'Update wird gestartet …', 'busy');
+      try { const r = await api('startFirmwareUpdate', { address: d.address }); msg(o, r.message, 'ok'); } catch (e) { msg(o, e.message, 'bad'); btn.disabled = false; }
     });
-    return toggle(box);
+    return h('div', { class: 'notice warn' }, h('p', { text: 'Neue Firmware ' + d.firmwareUpdate + ' liegt bereit (installiert: ' + d.firmware + ').' }), btn, o);
   }
-  function onlineCell(d) {
-    if (d.keyDevice) return h('span', { class: 'muted', text: '–' });
-    const id = cuxId(d.address);
-    if (id) {
-      const box = h('input', { type: 'checkbox', checked: (cux.settings[id] || {}).enabled === true }), state = cux.states.get('cux:' + id);
-      const info = h('span', { class: 'sub', text: cux.error || (!box.checked ? 'Prüfung aus' : state ? ({ online: 'Online · ', offline: 'Offline · ', unknown: 'Nicht prüfbar · ' }[state.status] || '') + state.detail : 'IP wird aus PARAM9 gelesen …') });
-      box.addEventListener('change', async () => { box.disabled = true; try { const r = await post('saveCuxCheck', { address: d.address, enabled: box.checked }); cux.settings = r.cuxChecks || cux.settings; await loadCux(); render(); } catch (e) { box.checked = !box.checked; msg(out, e.message, 'bad'); } finally { box.disabled = false; } });
-      return h('div', {}, check('Online prüfen', box), info);
+  // LEVEL heißt bei Heizkörperthermostaten/Stellantrieben „Ventilstellung“ (Wunsch Thomas 13.10.2026), sonst wie in VALUE_NAMES
+  const VALVE = /eTRV|TRV|HM-CC-RT|FALMOT|FAL-|HEATING|CLIMATE|VALVE/i;
+  const valueText = (v, type) => !v ? '' : (v.key === 'LEVEL' && VALVE.test(String(type || '') + ' ' + String(v.channelType || '')) ? 'Ventilstellung ' : VALUE_NAMES[v.key] ? VALUE_NAMES[v.key] + ' ' : '') + fmtVal(v.key, v.value);
+  // Wochenprogramm (Wunsch Thomas): Schaltzeiten im Gerät selbst – laufen auch ohne CCU. Nur Administratoren (prüft der Server).
+  const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'], WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
+  async function loadWeek(d, box) {
+    let found; try { found = (await api('getWochenprogramme', undefined, { query: { geraet: d.address } })).kanaele || []; } catch { return; }
+    for (const k of found) {
+      try { if (k.kind === 'heat') heatEditor(box, k); else weekEditor(box, await api('getWochenprogramm', undefined, { query: { kanal: k.kanal } })); }
+      catch (e) { box.append(h('p', { class: 'muted', text: 'Wochenprogramm nicht lesbar: ' + e.message })); }
     }
-    if (d.provider === 'tasmota') return h('span', { class: 'muted', text: d.online ? 'Online' : 'Offline', title: 'Tasmota-Geräte werden laufend abgefragt.' });
-    if (d.provider && d.provider !== 'jeep') {
-      const box = h('input', { type: 'checkbox', checked: !!d.onlineCheck });
-      box.addEventListener('change', async () => { box.disabled = true; try { await post('setWifiDevice', { address: d.address, onlineCheck: box.checked }); d.onlineCheck = box.checked; } catch (e) { box.checked = !box.checked; msg(out, e.message, 'bad'); } finally { box.disabled = false; } });
-      return check('Online prüfen / WhatsApp', box);
+  }
+  // Heizprofil (Thermostate): je Tag Abschnitte „bis Uhrzeit → Temperatur“, letzter bis 24:00; Profilwahl P1…P6
+  const WD_LONG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  function heatEditor(box, k) {
+    const wrap = h('div'), o = h('p', { class: 'msg', role: 'status' });
+    box.append(h('h3', { text: 'Heizprofil (Wochenprogramm)' }), h('p', { class: 'muted', text: 'Je Tag: bis zu welcher Uhrzeit welche Temperatur gilt. Der letzte Abschnitt geht bis 24:00. Wird im Thermostat gespeichert und läuft auch ohne Zentrale.' }), wrap, o);
+    let wp = null;
+    const load = async profil => { wp = await api('getWochenprogramm', undefined, { query: { kanal: k.kanal, art: 'heat', iface: k.iface, ...(profil !== undefined ? { profil: String(profil) } : {}) } }); draw(); };
+    function draw() {
+      const days = wp.days;
+      const prof = wp.profiles.length > 1 ? h('select', { 'aria-label': 'Profil' }, ...wp.profiles.map(p => h('option', { value: String(p), text: 'Profil ' + p }))) : null;
+      if (prof) { prof.value = String(wp.profil); prof.addEventListener('change', () => task(null, o, async () => { await load(Number(prof.value)); return 'Profil ' + prof.value + ' geladen.'; }, 'Wird gelesen …')); }
+      const dayBox = t => {
+        const segs = days[t], rows = h('div', { class: 'heat-segs' });
+        const redraw = () => rows.replaceChildren(...segs.map((s, i) => {
+          const last = i === segs.length - 1;
+          const bis = last ? h('span', { class: 'mono', text: '24:00' }) : h('input', { type: 'time', step: 300, value: s.bis, 'aria-label': 'bis Uhrzeit' });
+          if (!last) bis.addEventListener('input', () => { s.bis = bis.value; });
+          const temp = h('input', { type: 'number', min: 4.5, max: 30.5, step: 0.5, value: s.temp, style: 'max-width:80px', 'aria-label': 'Temperatur °C' }); temp.addEventListener('input', () => { s.temp = Number(temp.value); });
+          const del = segs.length > 1 ? h('button', { class: 'btn small', type: 'button', text: '✕', title: 'Abschnitt entfernen' }) : null;
+          if (del) del.addEventListener('click', () => { segs.splice(i, 1); segs[segs.length - 1].bis = '24:00'; redraw(); });
+          return h('div', { class: 'row' }, h('span', { class: 'muted', text: 'bis' }), bis, temp, h('span', { class: 'muted', text: '°C' }), del);
+        }));
+        const add = h('button', { class: 'btn small', type: 'button', text: '＋ Abschnitt' });
+        add.addEventListener('click', () => { if (segs.length >= wp.slots) return; const l = segs[segs.length - 1]; segs.splice(segs.length - 1, 0, { bis: '12:00', temp: l.temp }); redraw(); });
+        const copy = h('button', { class: 'btn small', type: 'button', text: 'Auf alle Tage übernehmen' });
+        copy.addEventListener('click', () => { for (let x = 0; x < 7; x++) if (x !== t) days[x] = segs.map(s => ({ ...s })); draw(); msg(o, WD_LONG[t] + ' auf alle Tage übernommen – noch nicht gespeichert.', 'ok'); });
+        redraw();
+        return h('details', { class: 'auto-item' }, h('summary', {}, h('b', { text: WD_LONG[t] }), h('span', { class: 'muted', text: ' · ' + segs.map(s => s.bis + ' ' + String(s.temp).replace('.', ',') + '°').join(' | ') })), h('div', { class: 'auto-body' }, rows, h('div', { class: 'actions' }, add, copy)));
+      };
+      const save = h('button', { class: 'btn small primary', type: 'button', text: 'Heizprofil speichern' });
+      save.addEventListener('click', () => task(save, o, async () => {
+        for (const t of Object.keys(days)) days[t].sort((a, b) => (a.bis === '24:00' ? 1 : b.bis === '24:00' ? -1 : a.bis.localeCompare(b.bis)));
+        const r2 = await api('saveWochenprogramm', { kanal: wp.kanal, iface: wp.iface, profil: wp.profil, days });
+        wp = r2; draw(); return r2.message;
+      }, 'Wird ins Thermostat übertragen …'));
+      wrap.replaceChildren(...(prof ? [h('div', { class: 'row' }, h('span', { class: 'muted', text: 'Profil:' }), prof)] : []), h('div', { class: 'auto-list' }, ...WD_ORDER.map(dayBox)), h('div', { class: 'actions' }, save));
     }
-    return h('span', { class: 'muted', text: '–' });
+    load().catch(e => msg(o, 'Heizprofil nicht lesbar: ' + e.message, 'bad'));
   }
-
-  // ---------- Bedienung ----------
-  const pending = new Map();
-  async function switchControl(d, on, box) {
-    for (const b of box.querySelectorAll('button')) b.disabled = true;
-    const req = { state: on, confirmed: false }; pending.set(d.address, req);
-    const note = h('span', { class: 'muted', text: 'Wird geschaltet …' }); box.append(note);
-    try {
-      const r = await post('setSwitchState', { address: d.address, state: on });
-      if (r.confirmed && typeof r.state === 'boolean') { d.switchState = r.state; req.confirmed = true; }
-      if (!req.confirmed) note.textContent = r.message || 'Befehl übergeben; Rückmeldung steht aus.';
-      else render();
-    } catch (e) { note.textContent = e.message; for (const b of box.querySelectorAll('button')) b.disabled = false; }
+  function weekEditor(box, wp) {
+    let entries = wp.entries.map(e => ({ days: e.days, mode: e.mode, time: e.time, offset: e.offset, level: e.level }));
+    const rows = h('div'), o = h('p', { class: 'msg', role: 'status' }), add = h('button', { class: 'btn small', type: 'button', text: '＋ Schaltzeit' }), save = h('button', { class: 'btn small primary', type: 'button', text: 'Wochenprogramm speichern' });
+    const draw = () => rows.replaceChildren(...(entries.length ? entries.map((e, i) => {
+      const days = WD_ORDER.map(dn => { const c = h('input', { type: 'checkbox', checked: e.days.includes(dn), 'aria-label': WD[dn] }); c.addEventListener('change', () => { e.days = c.checked ? [...new Set([...e.days, dn])] : e.days.filter(x => x !== dn); }); return h('label', { class: 'check' }, c, h('span', { text: WD[dn] })); });
+      const mode = h('select', { 'aria-label': 'Zeitpunkt' }, h('option', { value: 'time', text: 'Uhrzeit' }), h('option', { value: 'sunrise', text: 'Sonnenaufgang' }), h('option', { value: 'sunset', text: 'Sonnenuntergang' })); mode.value = e.mode;
+      const time = h('input', { type: 'time', value: e.time, 'aria-label': 'Uhrzeit' }), off = h('input', { type: 'number', min: -120, max: 120, step: 1, value: e.offset || 0, style: 'max-width:90px', 'aria-label': 'Verschiebung in Minuten' });
+      const lvl = wp.kind === 'switch' ? h('select', { 'aria-label': 'Schalten' }, h('option', { value: '100', text: 'Ein' }), h('option', { value: '0', text: 'Aus' })) : h('input', { type: 'number', min: 0, max: 100, step: 5, value: e.level, style: 'max-width:90px', 'aria-label': 'Helligkeit %' });
+      lvl.value = String(e.level);
+      const unit = h('span', { class: 'muted', text: 'Min.' });
+      const sync = () => { time.hidden = mode.value !== 'time'; off.hidden = unit.hidden = mode.value === 'time'; };
+      mode.addEventListener('change', () => { e.mode = mode.value; sync(); }); time.addEventListener('input', () => { e.time = time.value; }); off.addEventListener('input', () => { e.offset = Number(off.value) || 0; });
+      lvl.addEventListener('change', () => { e.level = Number(lvl.value); }); lvl.addEventListener('input', () => { e.level = Number(lvl.value); });
+      sync();
+      const del = h('button', { class: 'btn small', type: 'button', text: '✕', title: 'Schaltzeit entfernen' }); del.addEventListener('click', () => { entries.splice(i, 1); draw(); });
+      return h('div', { class: 'card' }, h('div', { class: 'checks' }, ...days), h('div', { class: 'row' }, mode, time, off, unit, lvl, wp.kind === 'dimmer' ? h('span', { class: 'muted', text: '%' }) : null, del));
+    }) : [h('p', { class: 'muted', text: 'Noch keine Schaltzeiten.' })]));
+    add.addEventListener('click', () => { if (entries.length >= wp.capacity) return; entries.push({ days: [1, 2, 3, 4, 5], mode: 'time', time: '07:00', offset: 0, level: 100 }); draw(); });
+    save.addEventListener('click', () => task(save, o, async () => {
+      const r2 = await api('saveWochenprogramm', { kanal: wp.kanal, entries: entries.map(e => ({ days: e.days, mode: e.mode, time: e.time || '00:00', offset: e.offset || 0, level: wp.kind === 'switch' ? (e.level >= 50 ? 100 : 0) : Math.max(0, Math.min(100, Math.round(e.level))) })) });
+      entries = r2.entries.map(e => ({ days: e.days, mode: e.mode, time: e.time, offset: e.offset, level: e.level })); draw(); return r2.message;
+    }, 'Wird ins Gerät übertragen …'));
+    draw();
+    box.append(h('h3', { text: 'Wochenprogramm (' + (wp.kind === 'switch' ? 'Schalten' : 'Dimmen') + ')' }), h('p', { class: 'muted', text: 'Wird im Gerät gespeichert und läuft auch ohne Zentrale. Höchstens ' + wp.capacity + ' Schaltzeiten. Bei Sonnenzeiten: Verschiebung in Minuten (minus = früher).' }), rows, h('div', { class: 'actions' }, add, save), o);
   }
-  // Nach einem WLAN-Befehl nur den Statusspeicher nachlesen (nie den Befehl wiederholen).
-  const LISTS = { smartplus: 'getSmartplusDevices', smartlife: 'getSmartlifeDevices', dyson: 'getDysonDevices', tasmota: 'getTasmotaDevices' };
-  async function pollProvider(provider) {
+  // Geräteeinstellungen (ersetzt die Gerätekonfiguration der alten CCU): auf Klick laden, nur geänderte Werte senden.
+  function settingsArea(d) {
+    if (d.central || !['HmIP-RF', 'BidCos-RF'].includes(d.interface)) return null;
+    const box = h('div'), load = h('button', { class: 'btn small', type: 'button', text: 'Einstellungen laden' }), o = h('p', { class: 'msg', role: 'status' });
+    load.addEventListener('click', () => task(load, o, async () => {
+      const r = await api('getGeraeteParameter', undefined, { query: { adresse: d.address } }); load.hidden = true;
+      box.replaceChildren(...(r.kanaele.length ? r.kanaele.map(k => paramPanel(k)) : [h('p', { class: 'muted', text: 'Dieses Gerät hat keine einstellbaren Werte.' })]));
+      return '';
+    }, 'Wird gelesen …'));
+    return h('div', { class: 'gv-settings' }, h('h3', { text: 'Geräteeinstellungen' }), h('p', { class: 'muted', text: 'Einstellungen im Gerät selbst. Nur geänderte Werte werden gesendet; Batteriegeräte übernehmen sie beim nächsten Aufwachen (Taste drücken).' }), load, box, o);
+  }
+  function paramPanel(k) {
+    const inputs = new Map(), o = h('p', { class: 'msg', role: 'status' }), save = h('button', { class: 'btn small primary', type: 'button', text: 'Speichern' });
+    const row = p => {
+      let el;
+      if (p.type === 'BOOL') { el = h('input', { type: 'checkbox', checked: !!p.value }); }
+      else if (p.type === 'ENUM' && p.list) { el = h('select', {}, ...p.list.map((x, i) => h('option', { value: String(i), text: x || String(i) }))); el.value = String(p.value); }
+      else if (p.type === 'STRING') { el = h('input', { type: 'text', value: p.value ?? '', maxlength: 64 }); }
+      else { el = h('input', { type: 'number', value: p.value, min: p.min, max: p.max, step: p.type === 'FLOAT' ? 'any' : 1, style: 'max-width:110px' }); }
+      inputs.set(p.key, { el, p });
+      const range = p.type === 'FLOAT' || p.type === 'INTEGER' ? ' (' + p.min + ' … ' + p.max + (p.unit ? ' ' + p.unit : '') + ')' : '';
+      return h('tr', {}, h('td', {}, h('b', { text: p.name || p.key }), p.name ? h('div', { class: 'sub mono', text: p.key }) : null), h('td', {}, el), h('td', { class: 'muted', text: range }));
+    };
+    const known = k.params.filter(p => p.name), rest = k.params.filter(p => !p.name);
+    save.addEventListener('click', () => task(save, o, async () => {
+      const values = {};
+      for (const [key, { el, p }] of inputs) {
+        const v = p.type === 'BOOL' ? el.checked : p.type === 'ENUM' ? Number(el.value) : p.type === 'STRING' ? el.value : Number(el.value);
+        if (p.type === 'STRING' ? v !== (p.value ?? '') : p.type === 'BOOL' ? v !== !!p.value : Math.abs(v - Number(p.value)) > 1e-9) values[key] = v;
+      }
+      if (!Object.keys(values).length) return 'Keine Änderung.';
+      if (!await NEU.confirmDialog({ title: 'Einstellungen ins Gerät übertragen?', text: Object.keys(values).length + ' Wert(e) werden an ' + k.address + ' gesendet.', confirm: 'Übertragen' })) return 'Nicht übertragen.';
+      const r = await api('saveGeraeteParameter', { address: k.address, values });
+      for (const [key, x] of inputs) if (Object.hasOwn(values, key)) x.p.value = values[key];
+      return r.message;
+    }, 'Wird übertragen …'));
+    const table = list => h('div', { class: 'table-wrap' }, h('table', {}, h('tbody', {}, ...list.map(row))));
+    return h('div', { class: 'card' }, h('b', { text: k.address.includes(':') ? 'Kanal ' + k.address.split(':')[1] : 'Gerät' }),
+      known.length ? table(known) : null,
+      rest.length ? h('details', {}, h('summary', { text: 'Weitere Einstellungen (Expertenliste, ' + rest.length + ')' }), table(rest)) : null,
+      h('div', { class: 'actions' }, save), o);
+  }
+  let deletable = null;
+  api('getCcuDeviceList').then(r => { deletable = new Map((r.devices || []).filter(g => g.deletable).map(g => [g.address, g])); render(); }).catch(() => { deletable = new Map(); });
+  function deleteArea(d) {
+    const g = deletable && deletable.get(d.address); if (!g) return null;
+    const btn = h('button', { class: 'btn small danger', type: 'button', text: 'Gerät löschen …' }), out2 = h('p', { class: 'msg', role: 'status' });
+    const remove = async force => {
+      const ok = await NEU.confirmDialog({ title: force ? 'Ohne Reset entfernen?' : 'Gerät löschen?', danger: true, slider: true, confirm: force ? 'Ohne Reset entfernen' : 'Löschen',
+        text: d.name + ' (' + d.address + ') ' + (force ? 'wird nur aus der CCU entfernt. Das Gerät selbst behält seine Anlernung und muss später von Hand zurückgesetzt werden.' : 'wird auf Werkseinstellung zurückgesetzt und aus der CCU entfernt. Danach muss es neu angelernt werden. Batteriegeräte vorher kurz wecken (Taste drücken).') });
+      if (!ok) return;
+      btn.disabled = true; msg(out2, 'Gerät wird gelöscht … (bis zu 30 Sekunden)', 'busy');
+      try { const r = await api('deleteCcuDevice', { address: d.address, force }); msg(out2, r.message || 'Gerät gelöscht.', 'ok'); setTimeout(() => load(true), 1500); }
+      catch (e) { msg(out2, e.message, 'bad'); btn.disabled = false; if (!force && (e.status === 502 || /Werkseinstellung/.test(e.message))) { btn.textContent = 'Ohne Reset entfernen …'; btn.onclick = () => remove(true); } }
+    };
+    btn.addEventListener('click', () => remove(false));
+    return h('div', { class: 'gv-delete' }, h('h3', { text: 'Gerät löschen' }), h('p', { class: 'muted', text: 'Setzt das Gerät auf Werkseinstellung zurück und entfernt es aus der CCU.' }), btn, out2);
+  }
+  // Live-Ansicht: Werte der Kanäle jede Sekunde (nur solange aufgeklappt und sichtbar); Tasten als Bild, die zuletzt
+  // gedrückte leuchtet 2 Sekunden auf. Es wird nichts gefunkt – die Bridge hört nur mit.
+  const lives = new Map();
+  const VALUE_NAMES = { STATE: 'Zustand', LEVEL: 'Helligkeit', MOTION: 'Bewegung', ILLUMINATION: 'Helligkeit (Lux)', CURRENT_ILLUMINATION: 'Helligkeit (Lux)', ACTUAL_TEMPERATURE: 'Temperatur', HUMIDITY: 'Feuchte', LOW_BAT: 'Batterie schwach', UNREACH: 'nicht erreichbar', OPERATING_VOLTAGE: 'Spannung', RSSI_DEVICE: 'Empfang Gerät', RSSI_PEER: 'Empfang Zentrale', CONFIG_PENDING: 'Konfiguration offen', SET_POINT_TEMPERATURE: 'Soll-Temperatur', POWER: 'Leistung', ENERGY_COUNTER: 'Zähler', WINDOW_STATE: 'Fenster', LOW_BAT: 'Batterie schwach', LOWBAT: 'Batterie schwach', SABOTAGE: 'Sabotage', ERROR_CODE: 'Fehlercode', ERROR_OVERHEAT: 'Übertemperatur', ERROR_OVERLOAD: 'Überlast', ACTUAL_TEMPERATURE_STATUS: 'Temperatur (Status)', OPERATING_VOLTAGE_STATUS: 'Spannung (Status)', DUTY_CYCLE: 'Sendelimit', UPDATE_PENDING: 'Update wartet', INSTALL_TEST: 'Anlerntest', PROCESS: 'Vorgang', SECTION: 'Bereich', SECTION_STATUS: 'Bereich (Status)', WORKING: 'Arbeitet', LEVEL_STATUS: 'Helligkeit (Status)', CURRENT: 'Strom', VOLTAGE: 'Spannung', FREQUENCY: 'Frequenz', ENERGY_COUNTER_OVERFLOW: 'Zählerüberlauf', VALVE_STATE: 'Ventil (Status)', LEVEL_2: 'Lamellen', BOOST_MODE: 'Boost', SET_POINT_MODE: 'Betriebsart', PARTY_MODE: 'Party-Modus', WINDOW_OPEN: 'Fenster offen', ILLUMINATION_STATUS: 'Helligkeit (Status)', MOTION_DETECTION_ACTIVE: 'Bewegungserkennung aktiv', RESET_MOTION: 'Bewegung zurücksetzen', PRESENCE_DETECTION_STATE: 'Anwesenheit', CONFIG_PENDING: 'Konfiguration offen', DEVICE_IN_BOOTLOADER: 'Startmodus', RSSI_DEVICE: 'Empfang Gerät', TIME_OF_OPERATION: 'Betriebszeit', HUMIDITY_STATUS: 'Feuchte (Status)' };
+  const fmtVal = (k, v) => typeof v === 'boolean' ? (v ? 'ja' : 'nein') : typeof v === 'number' ? (k === 'LEVEL' ? Math.round(v * 100) + ' %' : String(Math.round(v * 100) / 100).replace('.', ',')) : String(v);
+  function renderLive(box, data) {
+    const now = Date.parse(data.now), keys = data.channels.filter(c => c.key);
+    const rocker = keys.length ? h('div', { class: 'gv-rocker', 'aria-label': 'Tasten' }, ...keys.map(c => {
+      const ev = ['PRESS_LONG', 'PRESS_SHORT', 'PRESS_LONG_START'].map(k => c.events[k] && { k, at: Date.parse(c.events[k].at) }).filter(Boolean).sort((a, b) => b.at - a.at)[0];
+      const hot = ev && now - ev.at < 2000;
+      return h('div', { class: 'gv-key' + (hot ? ' hot' : '') }, h('b', { text: 'Taste ' + c.address.split(':')[1] }), h('span', { text: hot ? (ev.k === 'PRESS_SHORT' ? 'kurz gedrückt' : 'lang gedrückt') : ev ? 'zuletzt ' + new Date(ev.at).toLocaleTimeString('de-DE') : 'noch nicht gedrückt' }));
+    })) : null;
+    const rows = data.channels.flatMap(c => Object.entries(c.values).filter(([k]) => !/^PRESS_|^INSTALL_TEST|^ERROR_|^DUTY_CYCLE$|^UPDATE_PENDING$|^CONFIG_PENDING$/.test(k) || k === 'CONFIG_PENDING').map(([k, v]) =>
+      h('tr', {}, h('td', { class: 'mono', text: c.address }), h('td', { text: VALUE_NAMES[k] || chType(k), title: k }), h('td', { text: fmtVal(k, v) }), h('td', { class: 'muted', text: c.events[k] ? new Date(c.events[k].at).toLocaleTimeString('de-DE') : '' }))));
+    // Seite „Geräte (neu)“: Zeit der Aktualisierung in der Kopfzeile des Aufklappmenüs (Wunsch Thomas 13.10.2026)
+    const kopf = box.closest('.gv-kanaele')?.querySelector('.gv-stand');
+    if (kopf) kopf.textContent = ' · aktualisiert ' + new Date(now).toLocaleTimeString('de-DE');
+    box.replaceChildren(rocker || h('p', { class: 'muted', text: 'Dieses Gerät hat keine Tasten.' }),
+      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ...['Kanal', 'Wert', 'Aktuell', 'Geändert'].map(t => h('th', { text: t })))), h('tbody', {}, ...rows))),
+      h('p', { class: 'muted', text: (kopf ? '' : 'Aktualisiert ' + new Date(now).toLocaleTimeString('de-DE') + ' · ') + 'Werte kommen von den Geräten, es wird nichts gesendet.' }));
+  }
+  function startLive(address, box) {
+    stopLive(box); box.replaceChildren(h('p', { class: 'muted', text: 'Live-Werte werden gelesen …' }));
+    const run = async () => { if (document.hidden) return; try { renderLive(box, await api('getGeraetLive', undefined, { query: { geraet: address } })); } catch (e) { box.replaceChildren(h('p', { class: 'muted', text: 'Live-Werte nicht verfügbar: ' + e.message })); } };
+    run(); lives.set(box, setInterval(run, 1000));
+  }
+  function stopLive(box) { clearInterval(lives.get(box)); lives.delete(box); }
+  // Grüner Punkt: Gerät wurde in den letzten 30 Sekunden betätigt (Taste, Schalten, Dimmen). Abfrage alle 3 s, nur bei sichtbarer Seite.
+  const activity = {};
+  async function pollActivity() {
+    if (document.hidden) return;
     try {
-      const r = await api(LISTS[provider]); if (!Array.isArray(r.devices)) return;
-      for (const item of r.devices) { const d = devices.find(x => x.provider === provider && x.id === item.id); if (!d) continue; if (typeof item.online === 'boolean') d.online = item.online; if (item.state) d.currentState = { ...d.currentState, ...item.state }; }
-      render();
+      const r = await api('getGeraeteAktivitaet'), offset = Date.now() - Date.parse(r.now);
+      for (const [dev, at] of Object.entries(r.active || {})) activity[dev] = Date.parse(at) + offset;
+      for (const dot of list.querySelectorAll('.gv-dot')) dot.hidden = !(activity[dot.dataset.dev] > Date.now() - 30000);
     } catch {}
   }
-  async function wifiControl(d, command, button) {
-    button.disabled = true;
-    try {
-      const r = await post(PROVIDERS[d.provider], { id: d.id, command }); if (typeof r.online === 'boolean') d.online = r.online; if (r.state) d.currentState = { ...d.currentState, ...r.state }; msg(out, r.message || 'Befehl übergeben.', 'ok'); render();
-      for (const delay of [1000, 3000]) setTimeout(() => pollProvider(d.provider), delay);
-    } catch (e) { msg(out, e.message, 'bad'); button.disabled = false; }
+  setInterval(pollActivity, 3000);
+  function fill(sel, values, all) { const v = sel.value; sel.replaceChildren(h('option', { value: '', text: all }), ...values.map(x => h('option', { value: x, text: x }))); sel.value = values.includes(v) ? v : ''; }
+  function showStats() {
+    const ds = data.devices, p = ds.filter(problem).length, u = ds.filter(d => d.firmwareUpdate).length;
+    stats.replaceChildren(NEU.stat('Geräte', String(ds.length), ds.reduce((n, d) => n + d.channels.length, 0) + ' Kanäle'),
+      NEU.stat('Mit Hinweis', String(p), p ? 'Batterie, Erreichbarkeit, Konfiguration' : 'alles in Ordnung', p ? 'warn' : 'ok'),
+      NEU.stat('Firmware-Updates', String(u), u ? 'verfügbar' : 'alles aktuell', u ? 'warn' : 'ok'));
+    fill(room, [...new Set(ds.flatMap(d => d.rooms))].sort((a, b) => a.localeCompare(b, 'de')), 'Alle Räume');
+    fill(iface, [...new Set(ds.map(d => d.interface))].sort(), 'Alle Schnittstellen');
   }
-  function dialog(title, ...content) {
-    const close = h('button', { class: 'btn', type: 'button', text: 'Schließen' });
-    const dlg = h('dialog', { 'aria-label': title }, h('div', { class: 'dlg-head' }, h('h2', { text: title })), h('div', { class: 'dlg-body' }, ...content), h('div', { class: 'dlg-actions' }, close));
-    const done = () => { if (dlg.open) dlg.close(); dlg.remove(); };
-    close.addEventListener('click', done); dlg.addEventListener('cancel', done);
-    document.body.append(dlg); dlg.showModal(); return dlg;
+  async function load(fresh) {
+    if (!data) list.replaceChildren(h('div', { class: 'empty', text: 'Geräte werden gelesen …' }));
+    try { const w = loadWerte(); data = await api('getGeraeteVerwaltung', undefined, fresh ? { query: { neu: '1' } } : {}); await w; showStats(); render(); renderExtras(); msg(out, 'Stand: ' + new Date(data.readAt).toLocaleTimeString('de-DE'), 'ok'); }
+    catch (e) { list.replaceChildren(h('div', { class: 'notice bad', text: 'Geräteliste nicht lesbar: ' + e.message })); }
   }
-  function dimmerDialog(d) {
-    const lvl = (d.currentState || {}).currentLevel, cur = typeof lvl === 'number' ? Math.round(lvl / 254 * 100) : 50;
-    const range = h('input', { type: 'range', min: 0, max: 100, step: 1, value: cur, style: 'width:100%;accent-color:#176c60', 'aria-label': 'Helligkeit' }), val = h('b', { text: cur + ' %' }), note = h('p', { class: 'msg', role: 'status' });
-    range.addEventListener('input', () => { val.textContent = range.value + ' %'; });
-    const set = async percent => { for (const b of dlg.querySelectorAll('button,input')) b.disabled = true; msg(note, 'Wird eingestellt …', 'busy'); try { const r = await post('setDimmerLevel', { address: d.address, percent }); if (typeof r.percent === 'number' && r.confirmed) { d.currentState = { ...d.currentState, currentLevel: Math.round(r.percent / 100 * 254), onOff: r.percent > 0 }; } msg(note, r.message || 'Übergeben.', 'ok'); render(); } catch (e) { msg(note, e.message, 'bad'); } finally { for (const b of dlg.querySelectorAll('button,input')) b.disabled = false; } };
-    const btn = (t, fn, cls) => { const b = h('button', { class: 'btn ' + (cls || ''), type: 'button', text: t }); b.addEventListener('click', fn); return b; };
-    const dlg = dialog(d.name, h('p', {}, 'Helligkeit: ', val), range, h('div', { class: 'actions' }, btn('Ein (100 %)', () => set(100)), btn('Aus', () => set(0)), btn('Übernehmen', () => set(Number(range.value)), 'primary')), note);
-  }
-  function thermostatDialog(d) {
-    const cap = d.thermostatControl, t = d.thermostatState || {};
-    const input = h('input', { type: 'number', min: cap.min, max: cap.max, step: cap.step || 0.5, value: Number.isFinite(t.setpoint) ? t.setpoint : '', required: true, style: 'max-width:140px' }), note = h('p', { class: 'msg', role: 'status' });
-    const apply = h('button', { class: 'btn primary', type: 'button', text: 'Übernehmen' });
-    apply.addEventListener('click', async () => {
-      if (!input.reportValidity() || input.value === '') return; apply.disabled = true; msg(note, 'Solltemperatur wird übergeben …', 'busy');
-      try { const r = await post('setThermostatTemperature', { address: d.address, temperature: Number(input.value) }); if (r.confirmed && typeof r.setpoint === 'number') d.thermostatState = { ...t, setpoint: r.setpoint }; msg(note, r.message || 'Übergeben.', 'ok'); render(); }
-      catch (e) { msg(note, e.message, 'bad'); } finally { apply.disabled = false; }
-    });
-    dialog(d.name, h('p', { text: 'Aktuell: ' + (Number.isFinite(t.temperature) ? t.temperature.toFixed(1) + ' °C' : 'unbekannt') }), field('Solltemperatur (°C)', input), h('div', { class: 'actions' }, apply), note);
-  }
-  function askRoomName() {
-    return new Promise(resolve => {
-      const input = h('input', { maxlength: 64, required: true, 'aria-label': 'Name des neuen Raums' }), ok = h('button', { class: 'btn primary', type: 'button', text: 'Anlegen' });
-      const dlg = dialog('Neuer CCU-Raum', field('Name des Raums', input), h('div', { class: 'actions' }, ok));
-      let done = false; const finish = v => { if (done) return; done = true; if (dlg.open) dlg.close(); dlg.remove(); resolve(v); };
-      ok.addEventListener('click', () => { if (input.value.trim()) finish(input.value.trim()); else input.reportValidity(); });
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') ok.click(); });
-      dlg.querySelector('.dlg-actions .btn').addEventListener('click', () => finish(null)); dlg.addEventListener('cancel', () => finish(null));
-      input.focus();
-    });
-  }
-
-  // ---------- Liste ----------
-  function filtered() {
-    const q = search.value.trim().toLowerCase();
-    let list = devices.filter(d => f.cuxd.checked || !extraCuxd(d));
-    unnamedLabel.textContent = 'Unbenannte Kanäle ausblenden (' + devices.filter(d => !hasName(d)).length + ')';
-    if (f.unnamed.checked) list = list.filter(hasName);
-    if (f.offline.checked) list = list.filter(d => !offline(d));
-    if (q) list = list.filter(d => [d.name, d.address, d.hmChannelType, d.matterDeviceType, d.room].some(v => (v || '').toLowerCase().includes(q)));
-    const cmp = new Intl.Collator('de', { sensitivity: 'base', numeric: true }).compare;
-    return list.sort((a, b) => cmp(a[sort.key] || '', b[sort.key] || '') * (sort.dir === 'asc' ? 1 : -1) || cmp(a.address, b.address));
-  }
-  function render() {
-    if (editing.size) return; // ungespeicherte Namen nicht überschreiben
-    const list = filtered(), pages = Math.max(1, Math.ceil(list.length / size)); page = Math.min(page, pages - 1);
-    total.textContent = list.length === devices.length ? devices.length + ' Geräte' : list.length + ' von ' + devices.length + ' Geräten';
-    sortName.textContent = 'Name ' + (sort.key === 'name' ? (sort.dir === 'asc' ? '↑' : '↓') : '⇅'); sortRoom.textContent = 'Raum ' + (sort.key === 'room' ? (sort.dir === 'asc' ? '↑' : '↓') : '⇅');
-    const rows = list.slice(page * size, (page + 1) * size);
-    const del = f.del.checked, delSeen = new Set();
-    headRow.replaceChildren(...(del ? ['Löschen', ...COLS] : COLS).map(t => h('th', { text: t })));
-    // Löschen-Knopf je CCU-Gerät (einmal pro Gerät, nicht für WLAN- oder Jeep-Einträge)
-    const delCell = d => {
-      const base = String(d.address || '').split(':')[0];
-      if (d.provider || /^CUX/i.test(base) || !base || delSeen.has(base)) return h('td', {});
-      delSeen.add(base);
-      const b = h('button', { class: 'btn small danger', type: 'button', text: 'Löschen', title: 'Gerät auf Werkseinstellung setzen und aus der CCU entfernen' });
-      b.addEventListener('click', () => removeDevice({ address: base, name: d.name, type: d.hmDeviceType }, false, b));
-      return h('td', {}, b);
-    };
-    body.replaceChildren(...(rows.length ? rows.map(d => h('tr', {}, del ? delCell(d) : null, h('td', {}, exposeCell(d)), h('td', {}, nameCell(d)), h('td', {}, stateCell(d)), h('td', {}, roomCell(d)), h('td', {}, typeCell(d)), h('td', {}, recordCell(d)), h('td', {}, onlineCell(d)))) : [h('tr', {}, h('td', { colspan: 7, class: 'empty', text: devices.length ? 'Keine passenden Geräte.' : 'Keine Geräte gefunden.' }))]));
-    const prev = h('button', { class: 'btn small', type: 'button', text: 'Zurück', disabled: page === 0 }), next = h('button', { class: 'btn small', type: 'button', text: 'Weiter', disabled: page >= pages - 1 });
-    const per = h('select', { 'aria-label': 'Geräte pro Seite', style: 'max-width:140px' }, [10, 25, 50, 100].map(n => h('option', { value: n, text: n + ' pro Seite', selected: n === size })));
-    prev.addEventListener('click', () => { page--; render(); }); next.addEventListener('click', () => { page++; render(); }); per.addEventListener('change', () => { size = Number(per.value); page = 0; render(); });
-    pager.replaceChildren(prev, h('span', { class: 'muted', text: 'Seite ' + (page + 1) + ' von ' + pages }), next, per);
-    renderUnmapped();
-  }
-  function renderUnmapped() {
-    unmappedBox.hidden = !f.unmapped.checked; if (!f.unmapped.checked) return;
-    const mapped = new Set(devices.map(d => d.address)), list = channels.filter(c => !mapped.has(c.address) && (f.cuxd.checked || !extraCuxd(c)));
-    unmappedBox.replaceChildren(panel('Nicht zugeordnete Kanäle', 'Kanäle der CCU, für die es (noch) keinen Matter-Gerätetyp gibt.', list.length ? NEU.table(['Adresse', 'Typ', 'Name', 'Werte', 'Online prüfen'], list.map(c => h('tr', {}, h('td', { class: 'mono', text: c.address }), h('td', {}, h('span', { class: 'tag', text: c.type || '–' })), h('td', { text: c.name || '' }), h('td', { class: 'muted', text: Object.keys(c.values || {}).join(', ') || '–' }), h('td', {}, onlineCell(c))))) : h('div', { class: 'empty', text: 'Keine nicht zugeordneten Kanäle.' })));
-  }
-  // ---------- Geräte löschen (Werkseinstellung + aus der CCU entfernen) ----------
-  let ccuList = null;
-  async function removeDevice(g, force, btn) {
-    const ok = await NEU.confirmDialog({
-      title: force ? 'Ohne Reset entfernen?' : 'Gerät löschen?', danger: true, slider: true, confirm: force ? 'Ohne Reset entfernen' : 'Löschen',
-      text: (g.name || g.type) + ' (' + g.address + ') ' + (force ? 'wird nur aus der CCU entfernt. Das Gerät selbst behält seine Anlernung und muss später von Hand zurückgesetzt werden.' : 'wird auf Werkseinstellung zurückgesetzt und aus der Liste entfernt. Danach muss es neu angelernt werden.')
-    });
-    if (!ok) return;
-    btn.disabled = true; msg(out, 'Gerät wird gelöscht … (bis zu 30 Sekunden)', 'busy');
-    try {
-      const r = await post('deleteCcuDevice', { address: g.address, force });
-      msg(out, r.message || 'Gerät gelöscht.', 'ok'); ccuList = null; await renderDelete(); load(true);
-    } catch (e) {
-      msg(out, e.message, 'bad');
-      if (!force && (e.status === 502 || /Werkseinstellung/.test(e.message))) { btn.disabled = false; btn.textContent = 'Ohne Reset entfernen …'; btn.onclick = () => removeDevice(g, true, btn); } else btn.disabled = false;
-    }
-  }
-  async function renderDelete() {
-    deleteBox.hidden = !f.del.checked; if (!f.del.checked) return;
-    if (!ccuList) { try { ccuList = (await api('getCcuDeviceList')).devices || []; } catch (e) { deleteBox.replaceChildren(panel('Geräte löschen', null, h('p', { class: 'msg bad', text: 'Geräteliste nicht lesbar: ' + e.message }))); return; } }
-    // Hier nur noch Geräte ohne eigene Zeile oben (z. B. Taster) – die übrigen haben den Knopf in der Tabelle.
-    const shownDev = new Set(devices.map(x => String(x.address || '').split(':')[0]));
-    const others = ccuList.filter(g => g.deletable && !shownDev.has(g.address));
-    deleteBox.hidden = !others.length; if (!others.length) return;
-    const rows = others.map(g => {
-      const btn = h('button', { class: 'btn small danger', type: 'button', text: 'Löschen', disabled: !g.deletable, title: g.deletable ? '' : 'Die Zentrale kann nicht gelöscht werden.' });
-      btn.addEventListener('click', () => removeDevice(g, false, btn));
-      return h('tr', {}, h('td', {}, h('b', { text: g.name || g.type || g.address })), h('td', {}, h('span', { class: 'tag', text: g.type || '–' })), h('td', { class: 'mono', text: g.address }), h('td', { text: g.label }), h('td', { text: g.room || '–' }), h('td', {}, btn));
-    });
-    deleteBox.replaceChildren(panel('Weitere Geräte löschen', 'Geräte ohne eigene Zeile oben (z. B. Taster und Fernbedienungen). „Löschen“ setzt das Gerät auf Werkseinstellung zurück und entfernt es aus der CCU. Batteriegeräte vorher kurz wecken (Taste drücken).',
-      others.length ? NEU.table(['Name', 'Typ', 'Adresse', 'Funk', 'Raum', ''], rows) : h('p', { class: 'muted', text: 'Keine Geräte gefunden.' })));
-  }
-  async function loadCux() {
-    try { const d = await api('getServiceStatus', undefined, { errorField: false }); cux = { settings: d.cuxChecks || {}, states: new Map((d.services || []).map(s => [s.id, s])), error: d.error || '' }; }
-    catch (e) { cux.error = 'Status nicht verfügbar: ' + e.message; }
-  }
-  // Auf der echten CCU kommen viele Zustandsmeldungen pro Sekunde. Würde die Tabelle bei jeder neu gebaut,
-  // wäre ein Schalter beim Loslassen der Maus schon ersetzt und der Klick ginge ins Leere.
-  // Deshalb: Neuaufbau höchstens etwa einmal pro Sekunde und nie während/kurz nach einem Klick in der Tabelle.
-  let renderTimer = null, holdUntil = 0;
-  const holding = () => Date.now() < holdUntil || (body.contains(document.activeElement) && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement.type !== 'checkbox');
-  body.addEventListener('pointerdown', () => { holdUntil = Date.now() + 1500; }, true);
-  body.addEventListener('keydown', () => { holdUntil = Date.now() + 1500; }, true);
-  function scheduleRender() {
-    if (renderTimer) return;
-    renderTimer = setTimeout(function run() { if (holding()) { renderTimer = setTimeout(run, 400); return; } renderTimer = null; render(); }, 1000);
-  }
-  async function load(force) {
-    if (loading || (!force && (editing.size || holding() || (body.contains(document.activeElement) && ['INPUT', 'SELECT'].includes(document.activeElement.tagName)) || document.querySelector('dialog[open]')))) return;
-    loading = true;
-    try {
-      try { rooms = (await api('getRooms')).rooms || []; } catch {}
-      try { ownRooms = await api('getRaumZuordnung'); } catch {}
-      try { werte = (await api('getLetzteWerte')).devices || {}; } catch {}
-      const d = await api('getDevices');
-      devices = d.devices || []; f.defaultExposed.checked = d.defaultExposed !== false;
-      // Tasmota-Steckdosen, die zu einem CUxD-Gerät gehören: nur einmal zeigen (als CUxD-Gerät mit Leistung).
-      for (const t of devices.filter(x => x.provider === 'tasmota' && x.cuxd)) { const target = devices.find(x => x.address === t.cuxd.address + ':1'); if (!target) continue; target.linkedPower = t.currentState?.power; target.linkedTasmota = t.address; t.hiddenByCuxd = true; }
-      devices = devices.filter(x => !x.hiddenByCuxd).concat(keyRows.map(x => ({ ...x, room: ownRooms.assign[x.address] || '' })));
-      for (const x of devices) if (x.provider && Object.hasOwn(ownRooms.assign || {}, x.address)) x.room = ownRooms.assign[x.address] || '';
-      // Homematic-Geräte, die die Zentrale als „nicht erreichbar“ meldet: als Offline zeigen (ohne Schaltknopf).
-      try { const unreach = new Set(((await api('getCcuOverview')).messages || []).filter(m => m.type === 'UNREACH').map(m => m.address)); for (const x of devices) if (!x.provider && unreach.has(String(x.address).split(':')[0])) x.onlineStatus = 'offline'; } catch {}
-      for (const x of devices) { const s = exposedSet.get(x.address); if (s) { if (Date.now() > s.until || x.exposed === s.value) exposedSet.delete(x.address); else x.exposed = s.value; } }
-      if (d.loading && !devices.length) { total.textContent = 'Geräte werden erkannt …'; body.replaceChildren(h('tr', {}, h('td', { colspan: 7, class: 'empty', text: 'CCU-Geräte werden erkannt … (bei vielen Geräten bis zu einer Minute)' }))); clearTimeout(retry); retry = setTimeout(() => load(true), 2000); return; }
-      render(); renderKeys(force).catch(() => {});
-    } catch (e) { body.replaceChildren(h('tr', {}, h('td', { colspan: 7, class: 'empty', text: 'Geräte konnten nicht geladen werden: ' + e.message }))); }
-    finally { loading = false; }
-  }
-  search.addEventListener('input', () => { page = 0; render(); });
-  for (const k of ['unnamed', 'offline']) f[k].addEventListener('change', () => { page = 0; render(); });
-  f.cuxd.addEventListener('change', () => { try { localStorage.setItem('mh-show-extra-cuxd-first-only', String(f.cuxd.checked)); } catch {} page = 0; render(); });
-  f.unmapped.addEventListener('change', async () => { if (f.unmapped.checked && !channels.length) { try { channels = (await api('getChannels')).channels || []; } catch (e) { msg(out, e.message, 'bad'); } } renderUnmapped(); });
-  f.del.addEventListener('change', () => { ccuList = null; render(); renderDelete(); });
-  f.defaultExposed.addEventListener('change', async () => {
-    const value = f.defaultExposed.checked;
-    if (value && !await confirmDialog({ title: 'Neue Geräte automatisch freigeben?', text: 'Neu angelernte Homematic-Geräte erscheinen dann automatisch in Apple Home.', confirm: 'Einschalten' })) { f.defaultExposed.checked = false; return; }
-    f.defaultExposed.disabled = true;
-    try { await post('setDefaultExposed', { defaultExposed: value }); alert.hidden = false; msg(out, 'Gespeichert.', 'ok'); } catch (e) { f.defaultExposed.checked = !value; msg(out, e.message, 'bad'); } finally { f.defaultExposed.disabled = false; }
-  });
-  NEU.events({
-    ready: () => load(true),
-    state: e => { const d = devices.find(x => x.address === e.address); if (!d || typeof e.state !== 'boolean') return; d.switchState = e.state; if (d.currentState) d.currentState.onOff = e.state; pending.delete(e.address); scheduleRender(); },
-    dimmer: e => { const d = devices.find(x => x.address === e.address); if (!d || typeof e.percent !== 'number') return; d.currentState = { ...d.currentState, currentLevel: Math.round(e.percent / 100 * 254), onOff: e.percent > 0 }; scheduleRender(); },
-    thermostat: e => { const d = devices.find(x => x.address === e.address); if (!d) return; d.thermostatState = { ...(d.thermostatState || {}), ...(Number.isFinite(e.temperature) ? { temperature: e.temperature } : {}), ...(Number.isFinite(e.setpoint) ? { setpoint: e.setpoint } : {}) }; scheduleRender(); }
-  });
-  Promise.all([loadCux(), loadRecording()]).then(() => load(true));
-  setInterval(() => { if (!document.hidden) load(); }, 15000);
-  setInterval(() => { if (!document.hidden) loadCux().then(() => render()); }, 30000);
+  for (const el of [search, room, iface, only]) el.addEventListener(el === search ? 'input' : 'change', render);
+  reload.addEventListener('click', () => { load(true); loadRows(); });
+  load(false);
 });

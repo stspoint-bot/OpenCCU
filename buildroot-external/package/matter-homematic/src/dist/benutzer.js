@@ -83,9 +83,38 @@ async function change(web, p) {
   if (p.action !== 'add') for (const [raw, s] of web.security?.sessions || []) if (s.user && s.user.toLowerCase() === p.name.toLowerCase()) web.security.sessions.delete(raw);
   return { success: true, users: load(web).map(pub), rollen: ROLES };
 }
+// CCU-Administrator-Passwort (Wunsch Thomas, 13.10.2026): Lücke bei einer NEUEN CCU ohne Sicherung schließen.
+// Nur setzen, solange es LEER ist (ein vorhandenes Passwort wird nie überschrieben – dafür die CCU-Oberfläche).
+// Weg wie die CCU selbst (system.fn::saveUserPwd → user.UserBlankPwd), nur lokal über ReGa 8181, einmal gesendet, danach zurückgelesen.
+// Das Passwort steht nur im Skript an 127.0.0.1, wird nie protokolliert oder gespeichert.
+const ADMIN_FIND = 'object u = null; string id; foreach (id, dom.GetObject(ID_USERS).EnumUsedIDs()) { object x = dom.GetObject(id); if (x && (x.Name() == "Admin")) { u = x; } } ';
+const ADMIN_STATE = ADMIN_FIND + 'if (u) { if (u.UserPwd() == "") { Write("MH_PW_LEER"); } else { Write("MH_PW_GESETZT"); } } else { Write("MH_KEIN_ADMIN"); }';
+const CCU_PW = /^[\x21\x23-\x5b\x5d-\x7e]{10,64}$/; // druckbares ASCII ohne Leerzeichen, " und \ (sicher im ReGa-Text)
+async function ccuAdminState(web) {
+  const c = web.deps.getConnector?.(); if (!c || typeof c.regaScript !== 'function') throw fail('CCU-Verbindung nicht verfügbar', 503);
+  const out = String(await c.regaScript(ADMIN_STATE, 8181)).trim();
+  if (out.includes('MH_PW_LEER')) return { admin: true, hasPassword: false };
+  if (out.includes('MH_PW_GESETZT')) return { admin: true, hasPassword: true };
+  if (out.includes('MH_KEIN_ADMIN')) return { admin: false, hasPassword: null };
+  throw fail('Antwort der CCU nicht lesbar', 502);
+}
+async function setCcuAdminPassword(web, p) {
+  if (!isObject(p) || Object.keys(p).some(k => k !== 'password')) throw fail('Unerwartete Angaben');
+  const pw = p.password; p.password = '';
+  checkPassword(pw);
+  if (!CCU_PW.test(pw)) throw fail('Für die CCU: 10 bis 64 Zeichen, keine Leerzeichen, keine Umlaute, kein " und kein \\');
+  const st = await ccuAdminState(web);
+  if (!st.admin) throw fail('Benutzer „Admin“ in der CCU nicht gefunden', 404);
+  if (st.hasPassword) throw fail('Der CCU-Administrator hat schon ein Passwort. Ändern nur über die CCU-Oberfläche (Einstellungen → Benutzerverwaltung).', 409);
+  const c = web.deps.getConnector();
+  try { await c.regaScript(ADMIN_FIND + 'if (u) { u.UserBlankPwd("' + pw + '"); system.Save(); Write("MH_OK"); }', 8181); } catch { /* einmal gesendet; Ergebnis unten zurücklesen */ }
+  const after = await ccuAdminState(web);
+  if (!after.hasPassword) throw fail('Die CCU hat das Passwort nicht bestätigt – bitte die Seite neu laden und prüfen.', 502);
+  return { success: true, hasPassword: true, message: 'Passwort für den CCU-Administrator gesetzt. Ab jetzt mit „Admin“ und diesem Passwort anmelden.' };
+}
 async function handle(web, req, res, u, auth) {
   const method = u.pathname === '/api/' ? u.searchParams.get('method') : null;
-  if (!['getBenutzer', 'saveBenutzer', 'getEigenesKonto', 'setEigenesPasswort'].includes(method)) return false;
+  if (!['getBenutzer', 'saveBenutzer', 'getEigenesKonto', 'setEigenesPasswort', 'getCcuAdmin', 'setCcuAdminPasswort'].includes(method)) return false;
   const send = (s, d) => web.sendJson(res, s, d);
   try {
     if (!auth) { send(403, { error: 'Anmeldung erforderlich' }); return true; }
@@ -100,10 +129,12 @@ async function handle(web, req, res, u, auth) {
       send(200, { success: true, message: 'Passwort geändert.' }); return true;
     }
     if (!isAdmin(auth)) { send(403, { error: 'Nur für Administratoren' }); return true; }
+    if (method === 'getCcuAdmin') { if (req.method !== 'GET') { send(405, { error: 'GET erforderlich' }); return true; } send(200, await ccuAdminState(web)); return true; }
+    if (method === 'setCcuAdminPasswort') { if (req.method !== 'POST') { send(405, { error: 'POST erforderlich' }); return true; } send(200, await setCcuAdminPassword(web, await require('./web-security').body(req))); return true; }
     if (method === 'getBenutzer') { if (req.method !== 'GET') { send(405, { error: 'GET erforderlich' }); return true; } send(200, { users: load(web).map(pub), rollen: ROLES }); return true; }
     if (req.method !== 'POST') { send(405, { error: 'POST erforderlich' }); return true; }
     send(200, await change(web, await require('./web-security').body(req)));
   } catch (e) { send(e.status || 500, { error: e.status ? e.message : 'Benutzer: Anfrage fehlgeschlagen' }); }
   return true;
 }
-module.exports = { login, gate, handle, ROLES, _test: { load, VIEW, OPERATE, checkPassword } };
+module.exports = { login, gate, handle, ROLES, _test: { load, VIEW, OPERATE, checkPassword, CCU_PW } };

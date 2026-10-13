@@ -45,13 +45,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!d.online) state.append(h('span', { class: 'tag bad', text: 'Offline' }));
     else if (d.kind === 'sensor') state.append(h('span', { text: reading(s) || 'Noch kein Messwert' }));
     else {
-      state.append(typeof s.on === 'boolean' ? pill(s.on, 'Ein', 'Aus') : h('span', { class: 'tag warn', text: 'Unbekannt' }));
-      for (const [t, on] of [['Einschalten', true], ['Ausschalten', false]]) {
-        if (s.on === on) continue;
-        const b = h('button', { class: 'btn small' + (on ? ' primary' : ''), type: 'button', text: t });
-        b.addEventListener('click', () => task(b, listOut, async () => { const r = await api('controlTasmota', { id: d.id, command: { on } }); d.state = r.state; d.online = r.online; shown = ''; render(); return r.message; }, 'Wird geschaltet …'));
-        state.append(b);
-      }
+      // Ein/Aus als EIN Symbol-Knopf (Wunsch Thomas 13.10.2026): Glühbirne bei Dimmern, sonst Stecker; Klick schaltet um
+      if (typeof s.on !== 'boolean') state.append(h('span', { class: 'tag warn', text: 'Unbekannt' }));
+      const b = NEU.powerButton(d.kind === 'light' || d.capabilities?.brightness ? 'licht' : 'stecker', s.on === true, d.name);
+      b.addEventListener('click', () => task(b, listOut, async () => { const r = await api('controlTasmota', { id: d.id, command: { on: s.on !== true } }); d.state = r.state; d.online = r.online; shown = ''; render(); return r.message; }, 'Wird geschaltet …'));
+      state.append(b);
       if (d.capabilities && d.capabilities.brightness) {
         const level = h('input', { type: 'number', min: 1, max: 100, step: 1, value: Number.isFinite(s.brightness) ? s.brightness : 50, 'aria-label': 'Helligkeit in Prozent für ' + d.name, style: 'width:5.5em' });
         level.addEventListener('focus', () => editing.add(d.id + '#l')); level.addEventListener('blur', () => editing.delete(d.id + '#l'));

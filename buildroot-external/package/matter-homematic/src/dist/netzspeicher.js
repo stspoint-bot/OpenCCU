@@ -20,6 +20,22 @@ let exec = (cmd, args) => new Promise((resolve, reject) => execFile(cmd, args, {
 let platform = process.platform;
 const state = { timer: null, web: null, lastSample: null, lastSync: null, lastError: null, mounted: false, busy: false, authFailAt: 0, forceMount: false };
 let readMounts = () => { try { return fs.readFileSync('/proc/mounts', 'utf8'); } catch { return ''; } };
+// Netzspeicher-Dienst des CCU-Systemabbilds (Chat1, 13.10.2026): Gibt es /etc/init.d/S96netzspeicher, hängt NUR dieser Dienst
+// ein (beim Start, mit Wächter); die Bridge liefert die Zugangsdaten und fragt den Zustand ab. Die Dateien liegen in
+// /usr/local/etc/netzspeicher (0700, mit .nobackup → nie in einer CCU-Sicherung). Ohne Dienst hängt die Bridge selbst ein (wie bisher).
+let SERVICE = '/etc/init.d/S96netzspeicher', SDIR = '/usr/local/etc/netzspeicher';
+const useService = () => platform === 'linux' && fs.existsSync(SERVICE);
+const isMounted = () => readMounts().split('\n').some(l => l.split(' ')[1] === MOUNT);
+function writeAtomic(file, text) { const tmp = file + '.neu-' + process.pid; fs.writeFileSync(tmp, text, { mode: 0o600 }); fs.renameSync(tmp, file); try { fs.chmodSync(file, 0o600); } catch {} }
+async function serviceFiles(cfg, pass) {
+  try { await exec(SERVICE, ['prepare']); } catch {}
+  fs.mkdirSync(SDIR, { recursive: true, mode: 0o700 }); try { fs.chmodSync(SDIR, 0o700); } catch {}
+  if (!fs.existsSync(path.join(SDIR, '.nobackup'))) fs.writeFileSync(path.join(SDIR, '.nobackup'), ''); // vor den Zugangsdaten: nie in die .sbk
+  writeAtomic(path.join(SDIR, 'netzspeicher.conf'), `HOST=${cfg.host}\nSHARE=${cfg.share}\n`);
+  writeAtomic(path.join(SDIR, 'credentials'), `username=${cfg.user}\npassword=${pass}\n`);
+}
+function removeServiceFiles() { for (const f of ['netzspeicher.conf', 'credentials']) fs.rmSync(path.join(SDIR, f), { force: true }); }
+async function serviceStatus() { try { return { code: 0, text: String(await exec(SERVICE, ['status'])).trim() }; } catch (e) { return { code: Number.isInteger(e.code) ? e.code : 1, text: String(e.stdout || e.stderr || e.message || '').trim().slice(0, 200) }; } }
 
 const dataDir = web => path.dirname(web.deps.configPath);
 const historyDir = web => path.join(dataDir(web), 'verlauf');
@@ -114,7 +130,24 @@ function mountHint(cfg, raw) {
 }
 async function mount(web, cfg, pass) {
   if (platform !== 'linux') throw fail('Netzwerkspeicher kann nur auf der CCU eingebunden werden (hier Testumgebung).', 501);
-  if (state.mounted) return;
+  if (useService()) {
+    // Mit Dienst: eingehängt und antwortet → fertig. Sonst Zugangsdaten sicherstellen (z. B. nach einer eingespielten Sicherung,
+    // die sie bewusst nicht enthält) und den Dienst neu einhängen lassen. Die Bridge selbst hängt hier nie ein oder aus.
+    if (isMounted()) { const ok = await Promise.race([fs.promises.stat(MOUNT).then(() => true, () => false), new Promise(r => setTimeout(() => r(false), 10000))]); if (ok) { state.mounted = true; return; } }
+    state.mounted = false;
+    if (!fs.existsSync(path.join(SDIR, 'credentials')) || !fs.existsSync(path.join(SDIR, 'netzspeicher.conf'))) await serviceFiles(cfg, pass);
+    try { await exec(SERVICE, ['remount']); state.mounted = true; state.authFailAt = 0; state.forceMount = false; return; }
+    catch { const st = await serviceStatus(); throw fail(st.code === 2 ? 'Die WD hat Benutzer oder Passwort abgelehnt – der Netzspeicher-Dienst pausiert 6 Stunden. Bitte Zugangsdaten prüfen und speichern.' : st.code === 3 ? 'Netzspeicher ist nicht eingerichtet.' : 'Netzspeicher nicht erreichbar' + (st.text ? ': ' + st.text : '') + '.', 502); }
+  }
+  // Wächter gegen hängende Freigaben (WD aus/abgestürzt, Konzept Chat1 13.10.2026): vor jeder Nutzung kurz und ohne zu
+  // blockieren nachsehen (stat im Hintergrund, höchstens 10 s). Hängt sie, lösen (umount -l) und neu einhängen.
+  if (state.mounted) {
+    const ok = await Promise.race([fs.promises.stat(MOUNT).then(() => true, () => false), new Promise(r => setTimeout(() => r(false), 10000))]);
+    if (ok) return;
+    console.log('[netzspeicher] Freigabe antwortet nicht – wird gelöst und neu eingehängt');
+    try { await exec('umount', ['-l', MOUNT]); } catch {}
+    state.mounted = false;
+  }
   // Nach einem Bridge-Neustart weiß der Speicher nichts mehr vom Einhängen (Chat1 12.10.2026: Freigabe war ZWEIMAL eingehängt):
   // steht MOUNT schon in /proc/mounts, zuerst lösen und frisch einhängen (sonst stapeln sich die Einhängungen).
   try { if (readMounts().split('\n').some(l => l.split(' ')[1] === MOUNT)) { for (let i = 0; i < 20; i++) { try { await exec('umount', ['-l', MOUNT]); } catch { break; } if (!readMounts().split('\n').some(l => l.split(' ')[1] === MOUNT)) break; } } } catch {}
@@ -126,9 +159,14 @@ async function mount(web, cfg, pass) {
   fs.writeFileSync(cred, `username=${cfg.user}\npassword=${pass}\n`, { mode: 0o600 });
   try {
     let last;
-    for (const vers of ['3.0', '2.1']) { // WD My Cloud: SMB 3 oder 2.1
-      try { await exec('mount', ['-t', 'cifs', `//${cfg.host}/${cfg.share}`, MOUNT, '-o', `credentials=${cred},vers=${vers},iocharset=utf8,uid=0,gid=0,file_mode=0600,dir_mode=0700,noserverino,soft,nounix`]); state.mounted = true; state.authFailAt = 0; state.forceMount = false; return; }
-      catch (e) { last = e; if (/Permission denied|EACCES|-13\b/i.test(String(e.stderr || e.message || ''))) break; } // Anmeldung abgelehnt: andere SMB-Version hilft nicht
+    // echo_interval=10: tote Verbindung nach ~20 s erkannt (soft → Fehler statt Hängen); actimeo=30: weniger Abfragen.
+    // Kennt der Kernel die Zusätze nicht („Invalid argument“), wird ohne sie eingehängt.
+    const base = `iocharset=utf8,uid=0,gid=0,file_mode=0600,dir_mode=0700,noserverino,soft,nounix`;
+    outer: for (const vers of ['3.0', '2.1']) { // WD My Cloud: SMB 3 oder 2.1
+      for (const extra of [',echo_interval=10,actimeo=30', '']) {
+        try { await exec('mount', ['-t', 'cifs', `//${cfg.host}/${cfg.share}`, MOUNT, '-o', `credentials=${cred},vers=${vers},${base}${extra}`]); state.mounted = true; state.authFailAt = 0; state.forceMount = false; return; }
+        catch (e) { last = e; const t = String(e.stderr || e.message || ''); if (/Permission denied|EACCES|-13\b/i.test(t)) break outer; if (!(extra && /Invalid argument|EINVAL|-22\b/i.test(t))) break; } // Anmeldung abgelehnt: andere SMB-Version hilft nicht
+      }
     }
     const raw = ((last && (last.stderr || last.message)) || 'unbekannt').trim();
     if (/Permission denied|EACCES|-13\b/i.test(raw)) state.authFailAt = Date.now();
@@ -136,7 +174,7 @@ async function mount(web, cfg, pass) {
     throw fail(mountHint(cfg, raw), 502);
   } finally { fs.rmSync(cred, { force: true }); }
 }
-async function unmount() { if (!state.mounted) return; try { await exec('umount', ['-l', MOUNT]); } catch {} state.mounted = false; }
+async function unmount() { if (!state.mounted) return; if (useService()) { state.mounted = false; return; } try { await exec('umount', ['-l', MOUNT]); } catch {} state.mounted = false; } // mit Dienst hängt nur der Dienst aus
 async function syncRemote(web, rows) {
   const cfg = settings(web), pass = secret(web).password || '';
   if (!cfg.enabled || !cfg.host || !cfg.share) return;
@@ -290,6 +328,11 @@ async function save(web, p) {
   vault(web).write(v.user || password ? { user: v.user, password } : {});
   web.writeConfigPatch(c => { c.netzspeicher = { enabled: v.enabled, host: v.host, share: v.share, folder: v.folder, user: v.user, intervalMinutes: v.intervalMinutes, recordLocal: v.recordLocal, ...(c.netzspeicher?.recordOff ? { recordOff: c.netzspeicher.recordOff } : {}) }; });
   if (cfgOld.host !== v.host || cfgOld.share !== v.share || cfgOld.user !== v.user || v.password) await unmount();
+  // Mit Netzspeicher-Dienst: Zugangsdaten für den Dienst schreiben und neu einhängen lassen; ohne Adresse/Benutzer Dateien entfernen
+  if (useService()) {
+    if (v.host && v.share && v.user && password) { await serviceFiles(v, password); try { await exec(SERVICE, ['remount']); state.mounted = true; } catch { state.mounted = false; } }
+    else { removeServiceFiles(); try { await exec(SERVICE, ['remount']); } catch {} state.mounted = false; }
+  }
   restart(web); v.password = '';
   return { success: true, ...publicStatus(web), message: v.enabled ? 'Gespeichert. Daten werden ab der nächsten Messung auf den Netzwerkspeicher geschrieben.' : 'Gespeichert. Netzwerkspeicher ist ausgeschaltet; Aufzeichnung ' + (v.recordLocal ? 'läuft lokal weiter.' : 'ist aus.') };
 }
@@ -382,4 +425,4 @@ async function handle(web, req, res, u, auth) {
   } catch (e) { send(e.status || 500, { error: e.status ? e.message : 'Netzwerkspeicher: Anfrage fehlgeschlagen' }); }
   return true;
 }
-module.exports = { handle, start, metrics, check, storeBackup, backupReady, listBackups, fetchBackup, readStatusFile, writeRequest, _test: { execEnv, tick, sample, setExec: fn => { exec = fn; }, setPlatform: p => { platform = p; }, setMount: m => { MOUNT = m; }, setReadMounts: f => { readMounts = f; }, state, get MOUNT() { return MOUNT; } } };
+module.exports = { handle, start, metrics, check, storeBackup, backupReady, listBackups, fetchBackup, readStatusFile, writeRequest, _test: { execEnv, tick, sample, mount, save, setService: (s, d) => { SERVICE = s; SDIR = d; }, setExec: fn => { exec = fn; }, setPlatform: p => { platform = p; }, setMount: m => { MOUNT = m; }, setReadMounts: f => { readMounts = f; }, state, get MOUNT() { return MOUNT; } } };

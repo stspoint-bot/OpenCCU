@@ -62,7 +62,8 @@ class Wache {
       if (Array.isArray(r.log)) this.state.log = r.log.filter(isObject).slice(-30);
     } catch {}
   }
-  save() { if (!this.file) return; try { require('./durable-storage').atomicJson(this.file, this.state); } catch {} }
+  // SD-Karte schonen (13.10.2026): nur schreiben, wenn sich der Zustand geändert hat (vorher jede Minute)
+  save() { if (!this.file) return; try { const s = JSON.stringify(this.state); if (s === this.savedJson) return; require('./durable-storage').atomicJson(this.file, this.state); this.savedJson = s; } catch {} }
   start() { if (this.timer) return; this.timer = setInterval(() => this.tick().catch(() => {}), this.timerMs); this.timer.unref?.(); }
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
   note(text) { this.state.log.push({ at: new Date(this.now()).toISOString(), text: String(text).slice(0, 200) }); this.state.log = this.state.log.slice(-30); }

@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const bw = { enabled: h('input', { type: 'checkbox' }), time: h('input', { type: 'time' }), note: h('input', { type: 'text', maxlength: 200, placeholder: 'z. B. Ersatzbatterien im Keller' }) };
   const bwSave = h('button', { class: 'btn primary', type: 'button', text: 'Speichern' }), bwRun = h('button', { class: 'btn', type: 'button', text: 'Jetzt prüfen und WhatsApp senden' }), bwOut = h('p', { class: 'msg', role: 'status' }), bwNow = h('div'), bwLog = h('div');
   const bwNote = h('span', { class: 'ef-note' }), bwTag = h('span', { class: 'tag' });
-  const bwPanel = panel('Batterie-Wächter', 'Prüft alle Geräte mit Batterie. Ist eine Batterie schwach, kommt einmal am Tag zur gewählten Uhrzeit eine WhatsApp-Nachricht (Nummer und Schlüssel unter „Dienste & WhatsApp“). Ein Gerät wird erst nach 7 Tagen erneut gemeldet.', bwNow,
+  const bwPanel = panel('Batterie-Wächter', 'Prüft alle Geräte mit Batterie. Ist eine Batterie schwach, kommt einmal am Tag zur gewählten Uhrzeit eine WhatsApp-Nachricht (Nummer und Schlüssel unter System → „Benachrichtigungen“). Ein Gerät wird erst nach 7 Tagen erneut gemeldet.', bwNow,
     h('details', { class: 'more' }, h('summary', { text: 'Einstellungen anzeigen' }), h('div', {},
       h('div', { class: 'form' }, h('div', { class: 'wide' }, toggle(bw.enabled, 'Batterie-Wächter eingeschaltet')), field('Uhrzeit der täglichen Prüfung', bw.time), h('div', { class: 'wide' }, field('Bemerkung (erscheint in der Überschrift)', bw.note))),
       h('div', { class: 'actions' }, bwSave, bwRun), bwOut, h('details', { class: 'more' }, h('summary', { text: 'Letzte Nachrichten' }), bwLog))));
@@ -46,27 +46,29 @@ document.addEventListener('DOMContentLoaded', () => {
   const jl = { enabled: h('input', { type: 'checkbox' }), notify: h('input', { type: 'checkbox' }), socket: h('select', { 'aria-label': 'Jeep-Steckdose' }),
     stopBelowW: h('input', { type: 'number', min: 1, max: 3000, step: 10 }), stopAfterMin: h('input', { type: 'number', min: 1, max: 60, step: 1 }),
     startTimeoutSec: h('input', { type: 'number', min: 30, max: 600, step: 10 }), startW: h('input', { type: 'number', min: 1, max: 500, step: 1 }),
-    stopAtPercent: h('input', { type: 'number', min: 0, max: 100, step: 1 }), priceEur: h('input', { type: 'number', min: 0, max: 5, step: 0.0001 }),
+    retries: h('input', { type: 'number', min: 0, max: 3, step: 1 }), retryWaitSec: h('input', { type: 'number', min: 10, max: 300, step: 10 }),
+    stopAtPercent: h('input', { type: 'number', min: 0, max: 100, step: 1 }), priceEur: h('input', { type: 'number', min: 0, max: 5, step: 0.0001 }), akkuKWh: h('input', { type: 'number', min: 3, max: 30, step: 0.1 }),
     note: h('input', { type: 'text', maxlength: 200, placeholder: 'z. B. ersetzt die alten CCU-Programme „Jeep …“' }),
-    autoOn: h('input', { type: 'checkbox' }), awayOff: h('input', { type: 'checkbox' }), radiusM: h('input', { type: 'number', min: 30, max: 2000, step: 10 }) };
+    autoOn: h('input', { type: 'checkbox' }), awayOff: h('input', { type: 'checkbox' }), faultOn: h('input', { type: 'checkbox' }), radiusM: h('input', { type: 'number', min: 30, max: 2000, step: 10 }) };
   // Ladeplatz (Wunsch Thomas): aktueller Jeep-Standort ± Umkreis; eingesteckt dort → an, Jeep weg → aus
   const jlHome = h('p', { class: 'muted' }), jlHomeBtn = h('button', { class: 'btn small', type: 'button', text: '📍 Aktuellen Jeep-Standort als Ladeplatz übernehmen' });
   jlHomeBtn.addEventListener('click', () => task(jlHomeBtn, jlOut, async () => { const r = await api('setJeepLadeplatz', {}); jlShow(r); return r.message; }, 'Standort wird bei Uconnect gelesen …'));
   const jlSave = h('button', { class: 'btn primary', type: 'button', text: 'Speichern' }), jlOut = h('p', { class: 'msg', role: 'status' }), jlNow = h('div', { class: 'stats' }), jlMonths = h('div'), jlSessions = h('div'), jlLog = h('div');
   const jlNote = h('span', { class: 'ef-note' }), jlTag = h('span', { class: 'tag' });
-  const jlNum = ['stopBelowW', 'stopAfterMin', 'startTimeoutSec', 'startW', 'stopAtPercent', 'priceEur'];
-  const jlPanel = panel('Jeep laden', 'Steckdose an → WhatsApp „Ladung beginnt“. Fließt innerhalb der Wartezeit kein Strom, geht sie aus. Beim Laden: Leistung länger unter der Grenze oder Akku 100 % → aus, mit WhatsApp über die geladenen kWh. Der Zähler der Steckdose ergibt den Monatsverbrauch.', jlNow,
-    h('details', { class: 'more' }, h('summary', { text: 'Monatsverbrauch' }), jlMonths),
-    h('details', { class: 'more' }, h('summary', { text: 'Ladungen' }), jlSessions),
+  const jlNum = ['stopBelowW', 'stopAfterMin', 'startTimeoutSec', 'startW', 'retries', 'retryWaitSec', 'stopAtPercent', 'priceEur', 'akkuKWh'];
+  const jlPanel = panel('Jeep laden', 'Steckdose an → WhatsApp „Ladung beginnt“. Fließt innerhalb der Wartezeit kein Strom, gibt es einen neuen Versuch (aus, Pause, wieder an); bleibt es ohne Strom, geht sie aus. Beim Laden: Leistung länger unter der Grenze oder Akku 100 % → aus, mit WhatsApp über die geladenen kWh. Der Zähler der Steckdose ergibt den Monatsverbrauch.', jlNow,
+    h('details', { class: 'more', open: true }, h('summary', { text: 'Monatsverbrauch (Diagramm)' }), jlMonths),
+    h('details', { class: 'more', open: true }, h('summary', { text: 'Ladungen (Diagramm)' }), jlSessions),
     h('details', { class: 'more' }, h('summary', { text: 'Einstellungen anzeigen' }), h('div', {},
-      h('div', { class: 'form' }, h('div', { class: 'wide' }, toggle(jl.enabled, 'Ladesteuerung schaltet die Steckdose')), h('div', { class: 'wide' }, check('WhatsApp-Nachrichten senden', jl.notify)),
-        h('div', { class: 'wide' }, field('Bemerkung (erscheint in der Überschrift)', jl.note)), field('Jeep-Steckdose (Tasmota mit Strommessung)', jl.socket),
+      h('div', { class: 'form' }, h('div', { class: 'wide' }, toggle(jl.enabled, 'Ladesteuerung schaltet die Steckdose')), h('div', { class: 'wide' }, check('WhatsApp-Nachrichten senden', jl.notify)),        h('div', { class: 'wide' }, field('Bemerkung (erscheint in der Überschrift)', jl.note)), field('Jeep-Steckdose (Tasmota mit Strommessung)', jl.socket),
         field('Ausschalten unter (W)', jl.stopBelowW, 'Ladeleistung, unter der die Ladung als beendet gilt.'), field('… wenn so lange darunter (Minuten)', jl.stopAfterMin),
         field('Wartezeit auf Strom nach dem Einschalten (Sekunden)', jl.startTimeoutSec), field('Strom fließt ab (W)', jl.startW),
-        field('Ausschalten bei Akkustand (%; 0 = nie)', jl.stopAtPercent, 'Zählt nur mit einer Fahrzeugmeldung nach dem Einschalten.'), field('Strompreis (€/kWh)', jl.priceEur),
+        field('Neue Versuche, wenn kein Strom fließt (0–3)', jl.retries, 'Steckdose aus, Pause, wieder an. Beim neuen Versuch doppelte Wartezeit (mind. 2 Minuten). Nicht, wenn der Akku voll ist.'), field('Pause vor dem neuen Versuch (Sekunden)', jl.retryWaitSec),
+        field('Ausschalten bei Akkustand (%; 0 = nie)', jl.stopAtPercent, 'Zählt nur mit einer Fahrzeugmeldung nach dem Einschalten.'), field('Strompreis (€/kWh)', jl.priceEur), field('Nutzbare Akkukapazität (kWh, geschätzt)', jl.akkuKWh, 'Der Jeep meldet nur den Akkustand in %, keine kWh. Compass 4xe: 11,4 kWh brutto, ca. 9,1 kWh nutzbar. Daraus werden „Im Akku“ und der Wirkungsgrad geschätzt.'),
         h('div', { class: 'wide' }, h('h3', { text: 'Ladeplatz' }), jlHome, jlHomeBtn),
         h('div', { class: 'wide' }, check('Automatisch einschalten, wenn der Jeep am Ladeplatz steht und „Ladekabel eingesteckt“ meldet (einmal je Einstecken)', jl.autoOn)),
-        h('div', { class: 'wide' }, check('Ausschalten, wenn der Jeep nicht mehr am Ladeplatz steht', jl.awayOff)), field('Umkreis um den Ladeplatz (m)', jl.radiusM, '30 bis 2000 m. Uconnect meldet den Standort nur, wenn das Auto Daten schickt.')),
+        h('div', { class: 'wide' }, check('Ausschalten, wenn der Jeep nicht mehr am Ladeplatz steht', jl.awayOff)),
+        h('div', { class: 'wide' }, check('Einschalten, wenn der Jeep am Ladeplatz einen Ladefehler meldet (Meldung höchstens 30 Minuten alt, einmal je Ladefehler)', jl.faultOn)), field('Umkreis um den Ladeplatz (m)', jl.radiusM, '30 bis 2000 m. Uconnect meldet den Standort nur, wenn das Auto Daten schickt.')),
       h('div', { class: 'actions' }, jlSave), jlOut, h('details', { class: 'more' }, h('summary', { text: 'Letzte Ereignisse' }), jlLog))));
   jlPanel.querySelector('h2').append(jlNote, ' ', jlTag);
   // Gang-Licht nach Bad: eigener Block (gleiche Regel wie in den Automationen, gespeichert über saveAutomation).
@@ -224,31 +226,75 @@ document.addEventListener('DOMContentLoaded', () => {
     const res = await api('saveAutomation', { rule }); data = res; syFilled = false; renderList(); return `Gespeichert: alle ${every} ${every === 1 ? 'Tag' : 'Tage'} um ${sy.time.value} Uhr für ${minutes} Minuten (gezählt ab ${new Date(keepStart + 'T00:00:00').toLocaleDateString('de-DE')}).`;
   }, 'Wird gespeichert …'));
   const kw = v => v === null || v === undefined ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Ladungen als Säulen: kWh aus der Steckdose (Tasmota), darin heller die geschätzten kWh im Akku; Kosten darüber; letzte 15 Ladungen
+  function jlChargeChart(sessions) {
+    const list = sessions.filter(x => Number.isFinite(x.kWh) && x.kWh > 0).slice(0, 15).reverse(); if (!list.length) return null;
+    const ns = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt !== undefined) e.textContent = txt; return e; };
+    const W = 720, H = 240, L = 44, R = 10, T = 30, B = 34, max = Math.max(...list.map(x => x.kWh), 1), step = (W - L - R) / list.length, bw = Math.min(40, step * 0.62);
+    const y = v => T + (1 - v / max) * (H - T - B), svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Jeep Ladungen: Energie und Kosten', style: 'width:100%;height:auto' });
+    for (let i = 0; i <= 4; i++) { const v = max * i / 4, yy = y(v); svg.append(el('line', { x1: L, x2: W - R, y1: yy, y2: yy, stroke: '#e3e9e6' }), el('text', { x: L - 6, y: yy + 3, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, v.toLocaleString('de-DE', { maximumFractionDigits: 1 }))); }
+    svg.append(el('text', { x: L - 6, y: T - 14, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, 'kWh'));
+    list.forEach((x, i) => {
+      const cx = L + step * i + step / 2, top = y(x.kWh), d = new Date(x.start), bat = Number.isFinite(x.batteryKWh) ? Math.min(x.batteryKWh, x.kWh) : null;
+      const bar = el('rect', { x: cx - bw / 2, y: top, width: bw, height: Math.max(0, H - B - top), rx: 3, fill: '#176c60' });
+      bar.append(el('title', {}, d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) + ': ' + kw(x.kWh) + ' kWh aus der Steckdose' + (bat !== null ? ', ≈ ' + kw(bat) + ' kWh im Akku (geschätzt)' : '') + (Number.isFinite(x.socStart) && Number.isFinite(x.socEnd) ? ', Akku ' + x.socStart + ' % → ' + x.socEnd + ' %' : '') + (x.costEur !== null && x.costEur !== undefined ? ', ' + kw(x.costEur) + ' €' : '')));
+      svg.append(bar);
+      if (bat !== null) svg.append(el('rect', { x: cx - bw / 2 + 4, y: y(bat), width: Math.max(2, bw - 8), height: Math.max(0, H - B - y(bat)), rx: 2, fill: '#8fc3b9' }));
+      if (x.costEur !== null && x.costEur !== undefined) svg.append(el('text', { x: cx, y: top - 4, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 600, fill: '#176c60' }, kw(x.costEur) + ' €'));
+      svg.append(el('text', { x: cx, y: H - 14, 'text-anchor': 'middle', 'font-size': 10, fill: '#738487' }, d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })));
+    });
+    const sum = list.reduce((a, x) => a + x.kWh, 0), cost = list.reduce((a, x) => a + (x.costEur || 0), 0);
+    return h('div', { class: 'card', style: 'margin-bottom:12px' }, h('div', { class: 'card-head' }, h('b', { text: 'Ladungen: Energie und Kosten' }), h('span', { class: 'muted', text: list.length + (list.length === 1 ? ' Ladung' : ' Ladungen') + ': ' + kw(sum) + ' kWh · ' + kw(cost) + ' €' })), svg,
+      h('p', { class: 'muted', text: 'Dunkel: aus der Steckdose (Tasmota, gemessen). Hell: davon im Akku angekommen (geschätzt aus dem Akkustand des Jeep). Über der Säule die Kosten. Mit der Maus auf eine Säule zeigen für Details.' }));
+  }
+  // Monatsverbrauch als Säulen (kWh), Kosten darüber; letzte 12 Monate, laufender Monat heller (eigene SVG-Grafik wie „Diagramme“)
+  function jlChart(months) {
+    const list = months.slice(0, 12).reverse(); if (!list.length) return null;
+    const ns = 'http://www.w3.org/2000/svg', el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (txt !== undefined) e.textContent = txt; return e; };
+    const W = 720, H = 240, L = 44, R = 10, T = 30, B = 34, max = Math.max(...list.map(m => m.kWh), 1), step = (W - L - R) / list.length, bw = Math.min(46, step * 0.62), cur = new Date().toISOString().slice(0, 7);
+    const y = v => T + (1 - v / max) * (H - T - B), svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Jeep Monatsverbrauch und Kosten', style: 'width:100%;height:auto' });
+    for (let i = 0; i <= 4; i++) { const v = max * i / 4, yy = y(v); svg.append(el('line', { x1: L, x2: W - R, y1: yy, y2: yy, stroke: '#e3e9e6' }), el('text', { x: L - 6, y: yy + 3, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, v.toLocaleString('de-DE', { maximumFractionDigits: v < 10 ? 1 : 0 }))); }
+    svg.append(el('text', { x: L - 6, y: T - 14, 'text-anchor': 'end', 'font-size': 10, fill: '#738487' }, 'kWh'));
+    list.forEach((m, i) => {
+      const cx = L + step * i + step / 2, top = y(m.kWh), running = m.month === cur;
+      svg.append(el('rect', { x: cx - bw / 2, y: top, width: bw, height: Math.max(0, H - B - top), rx: 3, fill: running ? '#8fc3b9' : '#176c60' }, undefined));
+      svg.lastChild.append(el('title', {}, m.month.slice(5) + '/' + m.month.slice(0, 4) + ': ' + kw(m.kWh) + ' kWh' + (m.costEur !== null ? ', ' + kw(m.costEur) + ' €' : '') + (running ? ' (laufender Monat)' : '')));
+      svg.append(el('text', { x: cx, y: top - 14, 'text-anchor': 'middle', 'font-size': 10, fill: '#22312d' }, kw(m.kWh) + ' kWh'));
+      if (m.costEur !== null) svg.append(el('text', { x: cx, y: top - 3, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 600, fill: '#176c60' }, kw(m.costEur) + ' €'));
+      svg.append(el('text', { x: cx, y: H - 14, 'text-anchor': 'middle', 'font-size': 10, fill: '#738487' }, m.month.slice(5) + '/' + m.month.slice(2, 4)));
+    });
+    const sum = list.reduce((a, m) => a + m.kWh, 0), cost = list.reduce((a, m) => a + (m.costEur || 0), 0);
+    return h('div', { class: 'card', style: 'margin-bottom:12px' }, h('div', { class: 'card-head' }, h('b', { text: 'Verbrauch und Kosten je Monat' }), h('span', { class: 'muted', text: list.length + (list.length === 1 ? ' Monat' : ' Monate') + ': ' + kw(sum) + ' kWh · ' + kw(cost) + ' €' })), svg,
+      h('p', { class: 'muted', text: 'Gemessen an der Jeep-Steckdose (Tasmota). Kosten mit dem eingestellten Strompreis; der laufende Monat ist heller.' }));
+  }
   function jlShow(d) {
     const s = d.settings;
     jl.enabled.checked = s.enabled; jl.notify.checked = s.notify; jl.note.value = s.note || ''; for (const k of jlNum) jl[k].value = s[k];
-    jl.autoOn.checked = !!s.autoOn; jl.awayOff.checked = !!s.awayOff; jl.radiusM.value = s.radiusM || 100;
+    jl.autoOn.checked = !!s.autoOn; jl.awayOff.checked = !!s.awayOff; jl.faultOn.checked = !!s.faultOn; jl.radiusM.value = s.radiusM || 100;
     jlHome.textContent = (s.homeSet ? 'Ladeplatz: ' + (s.homeAddress || 'festgelegt') : 'Noch kein Ladeplatz festgelegt.') + ' · Ladekabel laut Jeep: ' + (d.plugged === true ? 'eingesteckt' : d.plugged === false ? 'nicht eingesteckt' : 'unbekannt');
-    jl.autoOn.disabled = jl.awayOff.disabled = !s.homeSet;
+    jl.autoOn.disabled = jl.awayOff.disabled = jl.faultOn.disabled = !s.homeSet;
     jl.socket.replaceChildren(h('option', { value: '', text: '– Steckdose wählen –' }), ...d.sockets.map(x => h('option', { value: x.address, text: x.name + ' – jetzt ' + (x.on ? 'an' : 'aus') + (x.power !== null ? ', ' + x.power + ' W' : '') }))); jl.socket.value = s.socket || '';
     jlNote.textContent = s.note ? ' – ' + s.note : ''; jlTag.className = 'tag ' + (s.enabled ? 'ok' : ''); jlTag.textContent = s.enabled ? 'aktiv' : 'aus';
     const n = d.now, cur = d.months[0];
     jlNow.replaceChildren(stat('Steckdose', n ? (n.online ? (n.on ? 'an' : 'aus') : 'offline') : '–', n && n.power !== null ? n.power + ' W' : ''), stat('Akku', d.percent ? d.percent.value + ' %' : '–', d.percent ? 'Meldung ' + new Date(d.percent.at).toLocaleString('de-DE') : ''),
       stat('Ladung läuft', d.session ? 'ja' : 'nein', d.session ? 'seit ' + new Date(d.session.start).toLocaleTimeString('de-DE') : ''), stat('Dieser Monat', cur ? kw(cur.kWh) + ' kWh' : '–', cur && cur.costEur !== null ? kw(cur.costEur) + ' €' : ''));
-    jlMonths.replaceChildren(d.months.length ? table(['Monat', 'Verbrauch', 'Kosten'], d.months.map(m => h('tr', {}, h('td', { text: m.month.slice(5) + '/' + m.month.slice(0, 4) }), h('td', { text: kw(m.kWh) + ' kWh' }), h('td', { text: m.costEur !== null ? kw(m.costEur) + ' €' : '–' })))) : h('p', { class: 'muted', text: 'Noch keine Aufzeichnung.' }));
-    jlSessions.replaceChildren(d.sessions.length ? table(['Beginn', 'Ende', 'Geladen', 'Kosten', 'Grund'], d.sessions.map(x => h('tr', {}, h('td', { text: new Date(x.start).toLocaleString('de-DE') }), h('td', { text: new Date(x.end).toLocaleString('de-DE') }), h('td', { text: kw(x.kWh) + ' kWh' }), h('td', { text: x.costEur !== null ? kw(x.costEur) + ' €' : '–' }), h('td', { text: x.reason })))) : h('p', { class: 'muted', text: 'Noch keine Ladung aufgezeichnet.' }));
+    jlMonths.replaceChildren(...(d.months.length ? [jlChart(d.months)].filter(Boolean) : []), d.months.length ? table(['Monat', 'Verbrauch', 'Kosten'], d.months.map(m => h('tr', {}, h('td', { text: m.month.slice(5) + '/' + m.month.slice(0, 4) }), h('td', { text: kw(m.kWh) + ' kWh' }), h('td', { text: m.costEur !== null ? kw(m.costEur) + ' €' : '–' })))) : h('p', { class: 'muted', text: 'Noch keine Aufzeichnung.' }));
+    jlSessions.replaceChildren(...(d.sessions.length ? [jlChargeChart(d.sessions)].filter(Boolean) : []), d.sessions.length ? table(['Beginn', 'Ende', 'Akku', 'Aus der Steckdose', 'Im Akku (geschätzt)', 'Wirkungsgrad', 'Kosten', 'Grund'], d.sessions.map(x => h('tr', {}, h('td', { text: new Date(x.start).toLocaleString('de-DE') }), h('td', { text: new Date(x.end).toLocaleString('de-DE') }),
+      h('td', { text: Number.isFinite(x.socStart) ? x.socStart + ' % → ' + (Number.isFinite(x.socEnd) ? x.socEnd + ' %' : '?') : '–' }), h('td', { text: x.kWh !== null && x.kWh !== undefined ? kw(x.kWh) + ' kWh' : '–' }),
+      h('td', { text: Number.isFinite(x.batteryKWh) ? '≈ ' + kw(x.batteryKWh) + ' kWh' : '–' }), h('td', { text: Number.isFinite(x.efficiencyPct) ? x.efficiencyPct + ' %' + (Number.isFinite(x.lossKWh) ? ' (Verlust ' + kw(x.lossKWh) + ' kWh)' : '') : '–' }),
+      h('td', { text: x.costEur !== null && x.costEur !== undefined ? kw(x.costEur) + ' €' + (Number.isFinite(x.costPerBatteryKWh) ? ' (' + kw(x.costPerBatteryKWh) + ' €/kWh im Akku)' : '') : '–' }), h('td', { text: x.reason })))) : h('p', { class: 'muted', text: 'Noch keine Ladung aufgezeichnet.' }));
     jlLog.replaceChildren(d.log.length ? table(['Zeit', 'Ereignis'], d.log.map(e => h('tr', {}, h('td', { text: new Date(e.at).toLocaleString('de-DE') }), h('td', { text: e.text })))) : h('p', { class: 'muted', text: 'Noch nichts.' }));
   }
   const jlLoad = () => api('getJeepLaden').then(jlShow).catch(e => msg(jlOut, e.message, 'bad'));
   jlSave.addEventListener('click', () => task(jlSave, jlOut, async () => {
-    const p = { enabled: jl.enabled.checked, notify: jl.notify.checked, socket: jl.socket.value, note: jl.note.value, autoOn: jl.autoOn.checked, awayOff: jl.awayOff.checked, radiusM: Number(jl.radiusM.value) || 100 };
+    const p = { enabled: jl.enabled.checked, notify: jl.notify.checked, socket: jl.socket.value, note: jl.note.value, autoOn: jl.autoOn.checked, awayOff: jl.awayOff.checked, faultOn: jl.faultOn.checked, radiusM: Number(jl.radiusM.value) || 100 };
     for (const k of jlNum) p[k] = Number(jl[k].value);
     const r = await api('saveJeepLaden', p); jlShow(r); return r.message;
   }, 'Wird gespeichert …'));
   function bwShow(d) {
     const s = d.settings; bw.enabled.checked = s.enabled; bw.time.value = s.time; bw.note.value = s.note || '';
     bwNote.textContent = s.note ? ' – ' + s.note : ''; bwTag.className = 'tag ' + (s.enabled ? 'ok' : ''); bwTag.textContent = s.enabled ? 'aktiv' : 'aus';
-    bwNow.replaceChildren(...[!d.whatsappReady ? h('div', { class: 'notice warn', text: 'WhatsApp ist noch nicht eingerichtet (Dienste & WhatsApp).' }) : null,
+    bwNow.replaceChildren(...[!d.whatsappReady ? h('div', { class: 'notice warn', text: 'WhatsApp ist noch nicht eingerichtet (System → Benachrichtigungen).' }) : null,
       d.weak.length ? h('p', {}, h('b', { text: 'Jetzt schwach: ' }), d.weak.map(x => x.device + (x.room ? ' (' + x.room + ')' : '')).join(', ')) : h('p', { class: 'muted', text: 'Zurzeit keine schwache Batterie.' })].filter(Boolean));
     bwLog.replaceChildren(d.log.length ? table(['Zeit', 'Ergebnis', 'Geräte'], d.log.slice().reverse().map(e => h('tr', {}, h('td', { text: new Date(e.at).toLocaleString('de-DE') }), h('td', { text: e.message + (e.manual ? ' (von Hand)' : '') }), h('td', { text: (e.devices || []).join(', ') })))) : h('p', { class: 'muted', text: 'Noch keine Nachricht.' }));
   }
@@ -287,10 +333,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const asText = h('textarea', { rows: 2, maxlength: 500, style: 'width:100%', placeholder: 'z. B. „Wenn ich abends den neuen Taster drücke, Gang und Bad aus“', 'aria-label': 'Was soll passieren?' });
   const asBtn = h('button', { class: 'btn primary', type: 'button', text: 'Vorschlag erstellen (KI)' }), asOut = h('p', { class: 'msg', role: 'status' }), asResult = h('div');
   const asDev = h('select', { 'aria-label': 'Gerät für Vorschläge' }), asSugg = h('div');
+  const asPress = h('button', { class: 'btn', type: 'button', text: '👆 Taste drücken' }); let asTimer = null;
   const ki = { on: h('input', { type: 'checkbox' }), key: h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'Schlüssel hier einfügen (wird verschlüsselt gespeichert)', 'aria-label': 'KI-Schlüssel' }), state: h('p', { class: 'muted' }) };
   const kiSave = h('button', { class: 'btn primary', type: 'button', text: 'Speichern' }), kiRemove = h('button', { class: 'btn', type: 'button', text: 'Schlüssel löschen' }), kiOut = h('p', { class: 'msg', role: 'status' });
-  const asPanel = panel('Assistent', 'Beschreibe in einem Satz, was passieren soll – oder wähle ein Gerät und nimm einen fertigen Vorschlag. Gespeichert wird erst, wenn du den Vorschlag im Editor prüfst und auf „Speichern“ klickst.',
-    field('Was soll passieren?', asText), h('div', { class: 'actions' }, asBtn), asOut, asResult,
+  const asPanel = panel('Assistent', 'Taste drücken und/oder in einem Satz beschreiben, was passieren soll – die KI füllt alles aus, du bestätigst mit einem Klick. Oder wähle ein Gerät und nimm einen fertigen Vorschlag. Gespeichert wird erst mit „Bestätigen“.',
+    h('div', { class: 'row' }, asPress), field('Was soll passieren?', asText), h('div', { class: 'actions' }, asBtn), asOut, asResult,
     field('Fertige Vorschläge für ein Gerät (ohne KI, offline)', asDev), asSugg,
     h('details', { class: 'more' }, h('summary', { text: 'KI einrichten' }), h('div', {},
       h('p', { class: 'muted', text: 'Kostenlose Stufe von Google Gemini mit deinem eigenen Schlüssel (aistudio.google.com → API-Schlüssel). Die KI bekommt nur deinen Satz sowie Gerätenamen und -typen (keine Adressen, keine Passwörter) und kann nur einen Regelvorschlag liefern – nichts schalten, nichts speichern. Höchstens 20 Anfragen je Stunde.' }),
@@ -302,13 +349,37 @@ document.addEventListener('DOMContentLoaded', () => {
   kiSave.addEventListener('click', () => task(kiSave, kiOut, async () => { const p = { enabled: ki.on.checked }; if (ki.key.value.trim()) p.key = ki.key.value.trim(); const r = await api('saveAssistent', p); kiShow(r.ki); return r.message; }, 'Wird gespeichert …'));
   kiRemove.addEventListener('click', async () => { if (!await confirmDialog({ title: 'Schlüssel löschen?', text: 'Der KI-Schlüssel wird von der CCU entfernt. Die festen Vorschläge funktionieren weiter.', confirm: 'Löschen' })) return; task(kiRemove, kiOut, async () => { const r = await api('saveAssistent', { removeKey: true, enabled: false }); kiShow(r.ki); return 'Schlüssel gelöscht.'; }, 'Wird gelöscht …'); });
   async function takeOver(rule) { try { cat = await api('getAutomationCatalog'); } catch {} openEditor(JSON.parse(JSON.stringify(rule))); msg(asOut, 'Vorschlag im Editor oben – bitte prüfen und speichern.', 'ok'); }
-  const ruleCard = (rule, extra) => h('div', { class: 'card' }, h('p', {}, h('b', { text: rule.name }), h('br'), sentence(rule)), extra || null, h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'button', text: 'Prüfen und übernehmen', onclick: () => takeOver(rule) })));
+  // „Bis zum Klick alles machen“ (Wunsch Thomas 13.10.2026): fertiger Vorschlag → „Bestätigen & speichern“ (ein Klick);
+  // nur wenn Auslöser und alle Ziele feststehen – sonst wie bisher erst in den Editor. Der Server prüft die Regel beim Speichern erneut.
+  // dieselbe Vollständigkeitsprüfung wie im Editor (complete() unten: '' = vollständig)
+  const ready = rule => { try { return complete({ conditions: [], actions: [], ...rule }) === ''; } catch { return false; } };
+  function ruleCard(rule, extra) {
+    const o = h('p', { class: 'msg', role: 'status' }), card = h('div', { class: 'card' });
+    const ok = h('button', { class: 'btn primary', type: 'button', text: '✓ Bestätigen & speichern' });
+    ok.addEventListener('click', () => task(ok, o, async () => { const res = await api('saveAutomation', { rule: { ...rule, enabled: rule.enabled !== false } }); data = res; renderList(); card.replaceChildren(h('p', { class: 'msg ok', text: '✓ Gespeichert und aktiv: „' + rule.name + '“' })); return ''; }, 'Wird gespeichert …'));
+    const fertig = ready(rule), edit = h('button', { class: fertig ? 'btn' : 'btn primary', type: 'button', text: fertig ? 'Im Editor ändern' : 'Prüfen und übernehmen', onclick: () => takeOver(rule) });
+    card.append(h('p', {}, h('b', { text: rule.name }), h('br'), sentence(rule)), extra || '', h('div', { class: 'actions' }, ...(fertig ? [ok, edit] : [edit])), fertig ? o : h('p',{ class: 'muted', text: 'Noch nicht alles festgelegt (z. B. welches Licht) – bitte im Editor ergänzen.' }));
+    return card;
+  }
+  // Taste drücken: der zuletzt gedrückte Taster wird als Auslöser in den Satz übernommen (Knopf oben bei asPanel angelegt)
+  asPress.addEventListener('click', () => {
+    if (asTimer) return; const seit = Date.now(); let n = 0; asPress.textContent = '… warte auf Tastendruck (30 s)'; msg(asOut, 'Jetzt die Taste am Gerät drücken …', 'busy');
+    asTimer = setInterval(async () => {
+      const ende = (t, k) => { clearInterval(asTimer); asTimer = null; asPress.textContent = '👆 Taste drücken'; if (t) msg(asOut, t, k); };
+      if (++n > 15) return ende('Kein Tastendruck erkannt. Bitte noch einmal – oder die Taste im Satz beschreiben.', 'warn');
+      try { const r = await api('getGeraeteAktivitaet'), off = Date.now() - Date.parse(r.now);
+        const hit = Object.entries(r.pressed || {}).filter(([, at]) => Date.parse(at) + off >= seit).sort((x, y) => y[1].localeCompare(x[1]))[0];
+        const src = hit && cat.sources.find(s => s.address === hit[0] && s.key === 'PRESS_SHORT');
+        if (src) { asText.value = 'Wenn „' + src.name + '“' + (src.room ? ' (' + src.room + ')' : '') + ' kurz gedrückt wird: ' + asText.value.replace(/^Wenn „[^“]*“( \([^)]*\))? kurz gedrückt wird: /, ''); ende('Erkannt: ' + src.name + '. Jetzt dahinter schreiben, was passieren soll.', 'ok'); asText.focus(); asText.setSelectionRange(asText.value.length, asText.value.length); }
+      } catch {}
+    }, 2000);
+  });
   asBtn.addEventListener('click', () => task(asBtn, asOut, async () => {
     asResult.replaceChildren();
     const r = await api('askAssistent', { text: asText.value });
     if (r.rule) asResult.replaceChildren(ruleCard(r.rule, r.question ? h('p', { class: 'muted', text: 'Hinweis der KI: ' + r.question }) : null));
     else if (r.question) asResult.replaceChildren(h('div', { class: 'notice warn', text: 'Rückfrage der KI: ' + r.question + ' – bitte den Satz genauer formulieren.' }));
-    return r.rule ? 'Vorschlag erstellt – er ist noch nicht gespeichert.' : 'Die KI braucht mehr Angaben.';
+    return r.rule ? 'Vorschlag fertig – bitte bestätigen. Noch ist nichts gespeichert.' : 'Die KI braucht mehr Angaben.';
   }, 'KI denkt nach …'));
   function asDevices() {
     const byDev = new Map();
@@ -322,8 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
     asSugg.replaceChildren(); if (!asDev.value) return;
     try {
       const r = await api('suggestAutomation', undefined, { query: { device: asDev.value } });
-      asSugg.replaceChildren(...(r.suggestions.length ? r.suggestions.map(s => h('div', { class: 'card' }, h('p', {}, h('b', { text: s.title })), ...s.rules.map(rule => h('p', { class: 'muted', text: sentence(rule) })),
-        h('div', { class: 'actions' }, ...s.rules.map((rule, i) => h('button', { class: 'btn small primary', type: 'button', text: s.rules.length > 1 ? 'Regel ' + (i + 1) + ' prüfen und übernehmen' : 'Prüfen und übernehmen', onclick: () => takeOver(rule) }))))) : [h('p', { class: 'muted', text: r.note || 'Für dieses Gerät gibt es noch keine fertigen Vorschläge – beschreibe oben in einem Satz, was passieren soll.' })]));
+      asSugg.replaceChildren(...(r.suggestions.length ? r.suggestions.map(s => h('div', {}, h('h4', { text: s.title }), ...s.rules.map(rule => ruleCard(rule)))) : [h('p', { class: 'muted', text: r.note || 'Für dieses Gerät gibt es noch keine fertigen Vorschläge – beschreibe oben in einem Satz, was passieren soll.' })]));
     } catch (e) { asSugg.replaceChildren(h('div', { class: 'notice bad', text: e.message })); }
   });
   main.append(adminNote, stats, editorBox, asPanel, listPanel, bsB.panel, glPanel, gbB.panel, syPanel, efPanel, jlPanel, bwPanel,
@@ -399,7 +469,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const st = rule.status || {}, problem = rule.problem || st.missing;
       // Zugeklappt: nur Überschrift (Name, Bemerkung, Zustand); Pfeil klappt Einzelheiten auf. Offene bleiben beim Aktualisieren offen.
       const box = h('details', { class: 'auto-item', open: openRules.has(rule.id) },
-        h('summary', {}, h('b', { text: rule.name }), rule.note ? h('span', { class: 'muted', text: ' – ' + rule.note }) : null, ' ', h('span', { class: 'tag ' + (rule.enabled ? 'ok' : ''), text: rule.enabled ? 'aktiv' : 'pausiert' }), problem ? h('span', { class: 'tag bad', text: '⚠ Problem' }) : null),
+        // Beschreibung in eigener Zeile unter Name und Zustand (Wunsch Thomas 13.10.2026: „das müsste separat stehen“)
+        h('summary', {}, h('b', { text: rule.name }), ' ', h('span', { class: 'tag ' + (rule.enabled ? 'ok' : ''), text: rule.enabled ? 'aktiv' : 'pausiert' }), problem ? h('span', { class: 'tag bad', text: '⚠ Problem' }) : null, rule.note ? h('span', { class: 'auto-note muted', text: rule.note }) : null),
         h('div', { class: 'auto-body' }, h('p', { text: sentence(rule) }), problem ? h('p', { style: 'color:var(--bad)', text: '⚠ ' + problem }) : null,
           h('p', { class: 'muted' }, 'Zuletzt: ' + (st.lastRun ? fmtDate(st.lastRun) : '–') + (st.lastResult ? ' · ' + st.lastResult : '')),
           h('div', { class: 'row' }, toggle(on, rule.enabled ? 'aktiv' : 'pausiert'), edit, test, del)));

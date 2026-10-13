@@ -29,7 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
     out.addEventListener('click', async () => { out.disabled = true; try { await api('webLogout', {}); } catch {} location.replace('/login.html'); });
     // ☰ (Wunsch Thomas): Geräte für die Handy-Seite auswählen – gespeichert als Favoritenliste „Handy“
     const menuBtn = h('button', { class: 'mob-menu', type: 'button', text: '☰', 'aria-label': 'Geräte für das Handy auswählen', 'aria-expanded': 'false' });
-    const head = h('header', { class: 'mob-head' }, h('img', { src: '/img/icon-180.png', alt: '', width: 36, height: 36 }), h('b', { text: 'CCU Matter' }), menuBtn);
+    // Versionsnummer klein unter dem Namen (Wunsch Thomas 13.10.2026)
+    const ver = h('small', { class: 'mob-ver' });
+    api('getBridgeStatus').then(s => { if (s.version) ver.textContent = 'Version ' + String(s.version).replace(/-ccu3-neu$/, ''); }).catch(() => {});
+    const head = h('header', { class: 'mob-head' }, h('img', { src: '/img/icon-180.png', alt: '', width: 36, height: 36 }), h('div', { class: 'mob-titel' }, h('b', { text: 'CCU Matter' }), ver), menuBtn);
     const drawer = h('aside', { class: 'mob-drawer', hidden: true, 'aria-label': 'Geräte für das Handy' }), shade = h('div', { class: 'mob-shade', hidden: true });
     const openDrawer = async open => {
       drawer.hidden = shade.hidden = !open; menuBtn.setAttribute('aria-expanded', String(open)); document.body.classList.toggle('mob-locked', open);
@@ -74,9 +77,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // der schmale Reiter zeigt gleich die aktuelle Ampelfarbe
     const szBody = h('div', { class: 'fav-body' }), page7 = h('section', { class: 'mob-page', 'aria-label': 'Systemzustand', hidden: true }, h('div', { class: 'fav-float fav-popup' }, h('div', { class: 'fav-bar' }, h('b', { text: '🚦 Systemzustand' })), szBody));
     const szTab = h('button', { class: 'mob-tab mob-tab-ampel', type: 'button', text: '🚦', 'aria-label': 'Systemzustand', title: 'Systemzustand' });
-    const pages = [page1, page3, page5, page6, page4, page7, page2], tabs = [h('button', { class: 'mob-tab', type: 'button', text: '💡 Meine' }), h('button', { class: 'mob-tab', type: 'button', text: '📋 Alle' }), h('button', { class: 'mob-tab', type: 'button', text: '🚙 Jeep' }), h('button', { class: 'mob-tab', type: 'button', text: '⚽ SC' }), h('button', { class: 'mob-tab', type: 'button', text: '🌤 Wetter' }), szTab, h('button', { class: 'mob-tab', type: 'button', text: '☰ Menü' })];
+    // Seite „🧹 Saugroboter“ (Wunsch Thomas 13.10.2026): Zustand, Akku, Störungen und Knöpfe; schmaler Reiter wie die Ampel
+    const svBody = h('div', { class: 'fav-body' }), page8 = h('section', { class: 'mob-page', 'aria-label': 'Saugroboter', hidden: true }, h('div', { class: 'fav-float fav-popup' }, h('div', { class: 'fav-bar' }, h('b', { text: '🧹 Saugroboter' })), h('p', { class: 'msg mob-note', role: 'status' }), svBody));
+    window.mhSvBody = svBody;
+    const svTab = h('button', { class: 'mob-tab mob-tab-ampel', type: 'button', text: '🧹', 'aria-label': 'Saugroboter', title: 'Saugroboter' });
+    const pages = [page1, page3, page5, page8, page6, page4, page7, page2], tabs = [h('button', { class: 'mob-tab', type: 'button', text: '💡 Meine' }), h('button', { class: 'mob-tab', type: 'button', text: '📋 Alle' }), h('button', { class: 'mob-tab', type: 'button', text: '🚙 Jeep' }), svTab, h('button', { class: 'mob-tab', type: 'button', text: '⚽ SC' }), h('button', { class: 'mob-tab', type: 'button', text: '🌤 Wetter' }), szTab, h('button', { class: 'mob-tab', type: 'button', text: '☰ Menü' })];
     window.mhZustandAmpel?.(szTab);
-    let cur = 0; const showPage = n => { cur = Math.max(0, Math.min(pages.length - 1, n)); pages.forEach((p, i) => { p.hidden = i !== cur; tabs[i].setAttribute('aria-pressed', String(i === cur)); }); try { sessionStorage.setItem('mh-mob-seite', String(cur)); } catch {} scrollTo(0, 0); if (pages[cur] === page5) window.mhJeepShow?.(); if (pages[cur] === page6) window.mhScShow?.(); if (pages[cur] === page7) window.mhZustandShow?.(szBody); else szBody._sz?.stop(); };
+    let cur = 0; const showPage = n => { cur = Math.max(0, Math.min(pages.length - 1, n)); pages.forEach((p, i) => { p.hidden = i !== cur; tabs[i].setAttribute('aria-pressed', String(i === cur)); }); try { sessionStorage.setItem('mh-mob-seite', String(cur)); } catch {} scrollTo(0, 0); if (pages[cur] === page5) window.mhJeepShow?.(); if (pages[cur] === page6) window.mhScShow?.(); if (pages[cur] === page8) window.mhSvShow?.(); else window.mhSvStop?.(); if (pages[cur] === page7) window.mhZustandShow?.(szBody); else szBody._sz?.stop(); };
     const show2 = second => showPage(second ? cur + 1 : cur - 1);
     tabs.forEach((b, i) => b.addEventListener('click', () => showPage(i)));
     tileAlle.addEventListener('click', e => { e.preventDefault(); showPage(pages.indexOf(page3)); });
@@ -87,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     addEventListener('touchend', e => { if (sx === null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null; if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) show2(dx < 0); }, { passive: true });
     window.mhMobBody2 = body2;
     win.querySelector('.fav-bar b').textContent = '💡 Meine Geräte';
-    document.title = 'CCU Matter'; document.body.classList.add('mob'); document.body.replaceChildren(head, page1, page3, page5, page6, page4, page7, page2, h('nav', { class: 'mob-tabs', 'aria-label': 'Seiten' }, ...tabs), shade, drawer);
+    document.title = 'CCU Matter'; document.body.classList.add('mob'); document.body.replaceChildren(head, page1, page3, page5, page8, page6, page4, page7, page2, h('nav', { class: 'mob-tabs', 'aria-label': 'Seiten' }, ...tabs), shade, drawer);
     showPage((() => { try { return Number(sessionStorage.getItem('mh-mob-seite')) || 0; } catch { return 0; } })());
   } else if (POPUP) { document.title = '★ Favoriten'; document.body.replaceChildren(win); } else document.body.append(opener, win);
   // Größe/Position anwenden (im sichtbaren Bereich halten)
@@ -111,6 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Meldezeile: auf der Jeep-Seite deren eigene (sonst wäre die Meldung auf einer anderen Seite unsichtbar)
   const noteFor = b => b.closest('.mob-page')?.querySelector('.mob-note') || note;
   const ctl = (text, fn, cls = '', address = '') => { const b = h('button', { class: 'btn small ' + cls, type: 'button', text }); b.addEventListener('click', async () => { b.disabled = true; const n = noteFor(b); try { const r = await fn(n); n.textContent = r?.message || 'Übergeben.'; if (address && r?.confirmed === false && typeof r.requestedState === 'boolean') followSwitch(address, r.requestedState, n); else setTimeout(refresh, 1500); } catch (e) { n.textContent = e.message; } finally { b.disabled = false; } }); return b; };
+  // Ein/Aus als Symbol (Wunsch Thomas 13.10.2026): der Knopf aus ctl() bekommt Aussehen und Beschriftung von NEU.powerButton
+  const asIcon = (b, art, on, label) => { const p = NEU.powerButton(art, on === true, label); b.className = p.className; b.title = p.title; b.setAttribute('aria-label', p.getAttribute('aria-label')); b.replaceChildren(...p.childNodes); return b; };
   // Nach „Befehl an CCU übergeben; warte auf Rückmeldung“: Zustand nach 2, 5, 10 und 20 s nachlesen und die Meldung ersetzen
   // (vorher blieb die Wartemeldung stehen). Danach keine weitere Abfrage.
   function followSwitch(address, want, n) {
@@ -151,6 +160,47 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(tick, 50); return b;
   }
   const whenText = iso => { const t = new Date(iso); if (!Number.isFinite(t.getTime())) return 'unbekannt'; const hm = t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr'; return new Date().toDateString() === t.toDateString() ? 'heute ' + hm : t.toLocaleDateString('de-DE') + ' ' + hm; };
+  // Handy-Seite „🧹 Saugroboter“: Übersicht und Knöpfe (getEcovacs / controlEcovacs, gleiche Rechte wie auf der PC-Seite).
+  // Solange die Seite offen ist, alle 10 s den Zustand der Bridge lesen (die Cloud fragt die Bridge selbst sparsam ab).
+  let sv = null, svTimer = null, svBusy = false;
+  async function loadSv() { try { sv = await api('getEcovacs'); } catch (e) { sv = { error: e.message }; } renderSv(); }
+  window.mhSvShow = () => { loadSv(); clearInterval(svTimer); svTimer = setInterval(() => { if (!document.hidden && !svBusy) loadSv(); }, 10000); };
+  window.mhSvStop = () => { clearInterval(svTimer); svTimer = null; };
+  function renderSv() {
+    const body = window.mhSvBody; if (!body) return;
+    const note = body.closest('.mob-page')?.querySelector('.mob-note');
+    if (!sv || sv.error && !sv.robot) { body.replaceChildren(h('p', { class: 'muted', text: sv?.error || 'Wird gelesen …' })); return; }
+    if (!sv.connected) { body.replaceChildren(h('p', { class: 'muted', text: 'Saugroboter nicht verbunden. Das Konto verbindet ein Administrator am PC unter Integrationen → Saugroboter.' })); return; }
+    const s = sv.state || {}, pct = v => Number.isFinite(v) ? v + ' %' : '–';
+    const go = (label, action, cls, extra) => { const b = h('button', { class: 'btn ' + (cls || ''), type: 'button', text: label }); b.addEventListener('click', async () => {
+      b.disabled = true; svBusy = true; if (note) note.textContent = 'Befehl wird gesendet …';
+      try { const r = await api('controlEcovacs', { action, ...(extra || {}) }); if (note) note.textContent = r.message || 'Übergeben.'; setTimeout(loadSv, 3500); } catch (e) { if (note) note.textContent = e.message; } finally { b.disabled = false; svBusy = false; } }); return b; };
+    const out = [];
+    out.push(h('div', { class: 'fav-list' }, h('div', { class: 'fav-title', text: sv.robot ? sv.robot.name : 'Saugroboter' }),
+      h('div', { class: 'sv-status' }, h('b', { class: 'sv-zustand', text: s.label || 'unbekannt' }), h('span', { class: 'sv-akku' + (s.batteryLow ? ' bad' : ''), text: '🔋 ' + pct(s.battery) + (s.charging ? ' · lädt' : '') })),
+      ...(s.errors || []).map(e => h('div', { class: 'notice bad', text: '⚠ ' + e.text })),
+      h('p', { class: 'muted small', text: 'Stand: ' + whenText(sv.updatedAt) })));
+    const running = ['cleaning', 'returning'].includes(s.state), paused = s.state === 'paused';
+    out.push(h('div', { class: 'fav-list' }, h('div', { class: 'fav-title', text: 'Reinigung' }), h('div', { class: 'sv-knoepfe' },
+      paused ? go('▶ Weiter', 'resume', 'primary') : running ? null : go('▶ Starten', 'start', 'primary'),
+      running ? go('⏸ Pause', 'pause') : null,
+      running || paused ? go('⏹ Stopp', 'stop') : null,
+      s.state !== 'docked' ? go('🏠 Zur Station', 'home') : null,
+      go('🔔 Finden', 'find'))));
+    if ((sv.rooms || []).length) {
+      const boxes = sv.rooms.map(r => h('input', { type: 'checkbox', value: String(r.id), 'aria-label': r.name }));
+      const roomGo = h('button', { class: 'btn primary', type: 'button', text: 'Ausgewählte Räume reinigen' });
+      roomGo.addEventListener('click', async () => { const ids = boxes.filter(x => x.checked).map(x => Number(x.value)); if (!ids.length) { if (note) note.textContent = 'Mindestens einen Raum auswählen.'; return; } roomGo.disabled = true; try { const r = await api('controlEcovacs', { action: 'rooms', rooms: ids, count: 1 }); if (note) note.textContent = r.message || 'Übergeben.'; setTimeout(loadSv, 3500); } catch (e) { if (note) note.textContent = e.message; } finally { roomGo.disabled = false; } });
+      out.push(h('div', { class: 'fav-list' }, h('div', { class: 'fav-title', text: 'Räume' }), h('div', { class: 'sv-raeume' }, ...sv.rooms.map((r, i) => h('label', { class: 'row' }, boxes[i], h('span', { text: r.name })))), roomGo));
+    }
+    out.push(h('div', { class: 'fav-list' }, h('div', { class: 'fav-title', text: 'Station' }), h('div', { class: 'sv-knoepfe' },
+      go('Absaugen', 'empty'), s.station === 'washing' ? go('Waschen beenden', 'washStop') : go('Mopp waschen', 'wash'), s.station === 'drying' ? go('Trocknen beenden', 'dryStop') : go('Mopp trocknen', 'dry'))));
+    const wear = (sv.life || []).filter(l => Number.isFinite(l.percent) && l.percent < 10);
+    if (sv.stats || wear.length) out.push(h('div', { class: 'fav-list' }, h('div', { class: 'fav-title', text: 'Übersicht' }),
+      sv.stats ? h('p', { text: 'Letzte Reinigung: ' + sv.stats.area + ' m² in ' + sv.stats.minutes + ' Min (' + whenText(sv.stats.start) + ')' }) : null,
+      ...wear.map(l => h('p', {}, h('span', { class: 'tag bad', text: 'bald wechseln' }), ' ' + l.name + ' (' + l.percent + ' %)'))));
+    body.replaceChildren(...out);
+  }
   // Handy-Seite „⚽ SC“: SC Freiburg (Männer, 1. Bundesliga). Daten holt die Bridge (kicker-News, OpenLigaDB), 30 min gemerkt.
   let sc = null, scErr = '', scLoading = false;
   async function loadSc(fresh) { if (scLoading) return; scLoading = true; renderSc(); try { sc = await api('getScFreiburg', undefined, fresh ? { query: { neu: '1' } } : {}); scErr = ''; } catch (e) { scErr = e.message; } scLoading = false; renderSc(); }
@@ -281,13 +331,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (d.provider === 'jeep') { box.append(st.value == null ? '–' : de(st.value, 0) + ' ' + (st.unit || '')); return box; }
     if (d.provider) {
       if (d.online === false) { box.append(h('span', { class: 'tag bad', text: 'Offline' })); return box; }
-      if ((d.capabilities || {}).kind !== 'sensor' && PROVIDERS[d.provider] && typeof st.on === 'boolean') box.append(ctl(st.on ? 'Ein' : 'Aus', () => api(PROVIDERS[d.provider], { id: d.id, command: { on: !st.on } }), st.on ? 'primary' : ''));
+      if ((d.capabilities || {}).kind !== 'sensor' && PROVIDERS[d.provider] && typeof st.on === 'boolean') box.append(asIcon(ctl('', () => api(PROVIDERS[d.provider], { id: d.id, command: { on: !st.on } })), (d.capabilities || {}).brightness || (d.capabilities || {}).kind === 'light' ? 'licht' : d.provider === 'dyson' ? 'luefter' : 'stecker', st.on, d.name));
       else box.append([Number.isFinite(st.temperature) ? de(st.temperature) + ' °C' : '', Number.isFinite(st.humidity) ? de(st.humidity, 0) + ' %' : ''].filter(Boolean).join(' · ') || '–');
       return box;
     }
     if (d.thermostatControl?.allowed) { const t = d.thermostatState || {}, cap = d.thermostatControl, sp = Number.isFinite(t.setpoint) ? t.setpoint : null; box.append((Number.isFinite(t.temperature) ? de(t.temperature) + ' °C' : '–') + (sp !== null ? ' → ' + de(sp) + ' °C ' : ' ')); if (sp !== null) box.append(ctl('−', () => api('setThermostatTemperature', { address: d.address, temperature: Math.max(cap.min, sp - 0.5) })), ctl('+', () => api('setThermostatTemperature', { address: d.address, temperature: Math.min(cap.max, sp + 0.5) }))); return box; }
     if (d.dimmerControl?.allowed) { const l = st.currentLevel, p = typeof l === 'number' ? Math.round(l / 254 * 100) : null; box.append(ctl(p ? p + ' %' : 'Aus', () => api('setDimmerLevel', { address: d.address, percent: p ? 0 : 100 }), p ? 'primary' : '')); return box; }
-    if (d.switchControl?.allowed) { const s = d.switchState; box.append(ctl(s === true ? 'Ein' : s === false ? 'Aus' : '?', () => api('setSwitchState', { address: d.address, state: s !== true }), s === true ? 'primary' : '', d.address)); return box; }
+    if (d.switchControl?.allowed) { const s = d.switchState; box.append(asIcon(ctl('', () => api('setSwitchState', { address: d.address, state: s !== true }), '', d.address), /Light/.test(d.matterDeviceType || '') ? 'licht' : 'stecker', s === true, d.name)); return box; }
     if (Number.isFinite(st.localTemperature)) box.append(de(st.localTemperature / 100) + ' °C');
     else if ('stateValue' in st) box.append(st.stateValue ? 'Geschlossen' : 'Offen');
     else if ('occupancy' in st) box.append((st.occupancy & 1) ? 'Bewegung' : 'Ruhe');

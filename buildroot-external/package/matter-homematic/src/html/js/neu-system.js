@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rbOn.checked = d.settings.enabled; rbTime.value = d.settings.time; rbNotify.checked = d.settings.notify;
         for (const x of rbDays) x.box.checked = d.settings.days.includes(x.value);
         rbInfo.replaceChildren(NEU.stat('Nächster Neustart', d.settings.enabled ? when(d.next) : 'aus', d.settings.enabled ? 'geplant' : 'nicht geplant', d.settings.enabled ? 'ok' : undefined), NEU.stat('Letzter Neustart', when(d.lastRun), d.lastResult ? d.lastResult.message : 'noch keiner über diese Seite', d.lastResult && !d.lastResult.ok ? 'warn' : undefined), NEU.stat('Läuft seit', NEU.fmtDuration(d.uptimeSeconds), 'seit dem letzten Start der CCU3'));
-        rbNote.replaceChildren(d.settings.notify && !d.whatsappReady ? h('div', { class: 'notice warn', text: 'WhatsApp ist noch nicht eingerichtet (System → Dienste & WhatsApp). Der Neustart läuft trotzdem, nur ohne Hinweis.' }) : '');
+        rbNote.replaceChildren(d.settings.notify && !d.whatsappReady ? h('div', { class: 'notice warn', text: 'WhatsApp ist noch nicht eingerichtet (System → Benachrichtigungen). Der Neustart läuft trotzdem, nur ohne Hinweis.' }) : '');
       }
       async function loadReboot() {
         try { showReboot(await api('getScheduledReboot')); }
@@ -148,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
           h('p', { class: 'muted', text: 'Zum Testen zu Hause das WLAN am Handy ausschalten und die Adresse über Mobilfunk öffnen.' })),
         panel('Sicherheit', null, h('ul', {},
           h('li', { text: 'Es gibt keine Portfreigabe im Router und keine öffentliche Adresse. Zugriff haben nur Geräte, die in deinem Tailscale-Konto angemeldet sind.' }),
-          h('li', { text: 'Die Anmeldung an dieser Oberfläche bleibt zusätzlich nötig. Nach mehreren falschen Versuchen wird gebremst; bei mehr als 10 falschen Anmeldungen in 24 Stunden kommt eine WhatsApp-Warnung (siehe „Dienste & WhatsApp“).' }),
+          h('li', { text: 'Die Anmeldung an dieser Oberfläche bleibt zusätzlich nötig. Nach mehreren falschen Versuchen wird gebremst; bei mehr als 10 falschen Anmeldungen in 24 Stunden kommt eine WhatsApp-Warnung (siehe „Benachrichtigungen“).' }),
           h('li', { text: 'Verlierst du ein Handy: im Tailscale-Konto das Gerät entfernen. Danach kommt es nicht mehr ins VPN.' })),
           h('div', { class: 'actions' }, h('a', { class: 'btn', href: '/services.html', text: 'Benachrichtigungen' }))),
         panel('Einmalige Einrichtung', 'Das VPN ist ein eigenes Zusatzprogramm der CCU3 (Matter-Tailscale) mit eigener Einstellungsseite.', h('ol', { class: 'steps' },

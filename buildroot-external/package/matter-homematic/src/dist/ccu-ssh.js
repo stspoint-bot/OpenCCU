@@ -6,7 +6,7 @@
 // Nur für CCU-Administratoren. Private Schlüssel und Passwörter werden nie angenommen oder ausgegeben.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto'), { execFile } = require('node:child_process');
 
-const DEFAULT_PATHS = Object.freeze({ flag: '/usr/local/etc/config/sshEnabled', keys: '/usr/local/etc/ssh/authorized_keys', init: '/etc/init.d/S50sshd', pid: '/var/run/sshd.pid', shadow: '/etc/config/shadow' });
+const DEFAULT_PATHS = Object.freeze({ flag: '/usr/local/etc/config/sshEnabled', keys: '/usr/local/etc/ssh/authorized_keys', init: '/etc/init.d/S50sshd', pid: '/var/run/sshd.pid', shadow: '/etc/config/shadow', config: '/usr/local/etc/ssh/sshd_config' });
 const LIMITS = Object.freeze({ keys: 20, line: 16384, comment: 64, file: 262144 });
 const TYPES = ['ssh-ed25519', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521', 'ssh-rsa', 'sk-ssh-ed25519@openssh.com', 'sk-ecdsa-sha2-nistp256@openssh.com'];
 // Neue Schlüssel dürfen nur anmelden, nicht weiterleiten.
@@ -52,9 +52,32 @@ function writeKeys(file, text) {
 function pidAlive(file) {
   try { const pid = Number(fs.readFileSync(file, 'utf8').trim()); if (!Number.isInteger(pid) || pid <= 1) return false; process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
+// Anmeldung mit Passwort (13.10.2026, Thomas: „nur Schlüssel“): steht in /usr/local/etc/ssh/sshd_config (beschreibbar;
+// /etc/ssh/sshd_config bindet sie ein). Ohne Eintrag gilt der OpenSSH-Standard „ja“.
+function readConfig(file) { try { return fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return ''; throw e; } }
+function passwordLogin(text) { const m = /^\s*PasswordAuthentication\s+(yes|no)\s*$/mi.exec(text); return m ? m[1].toLowerCase() === 'yes' : true; }
 function status(web) {
   const p = paths(web), available = fs.existsSync(p.init);
-  return { available, enabled: fs.existsSync(p.flag), running: available ? pidAlive(p.pid) : false, keys: listKeys(readKeys(p.keys)), limits: { keys: LIMITS.keys } };
+  return { available, enabled: fs.existsSync(p.flag), running: available ? pidAlive(p.pid) : false, passwordLogin: passwordLogin(readConfig(p.config)), keys: listKeys(readKeys(p.keys)), limits: { keys: LIMITS.keys } };
+}
+// Passwort-Anmeldung ein/aus. Ausschalten nur, wenn mindestens ein Schlüssel eingetragen ist (sonst sperrt man sich aus).
+// Danach liest sshd die Einstellung neu (SIGHUP); bestehende Verbindungen bleiben.
+async function setPasswordLogin(web, p) {
+  if (!isObject(p) || Object.keys(p).length !== 1 || typeof p.enabled !== 'boolean') throw fail('Ungültige Auswahl');
+  const s = paths(web);
+  if (!p.enabled && !listKeys(readKeys(s.keys)).length) throw fail('Erst einen Schlüssel eintragen – ohne Schlüssel und ohne Passwort käme niemand mehr per SSH auf die Zentrale.', 409);
+  const value = p.enabled ? 'yes' : 'no';
+  let text = readConfig(s.config);
+  for (const key of ['PasswordAuthentication', 'KbdInteractiveAuthentication']) {
+    const re = new RegExp('^\\s*' + key + '\\s+\\S+\\s*$', 'mi');
+    text = re.test(text) ? text.replace(re, key + ' ' + value) : (text && !text.endsWith('\n') ? text + '\n' : text) + key + ' ' + value + '\n';
+  }
+  fs.mkdirSync(path.dirname(s.config), { recursive: true, mode: 0o755 });
+  const tmp = s.config + '.neu-' + process.pid;
+  fs.writeFileSync(tmp, text, { mode: 0o600 });
+  try { fs.renameSync(tmp, s.config); } catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
+  try { const pid = Number(fs.readFileSync(s.pid, 'utf8').trim()); if (Number.isInteger(pid) && pid > 1) (web.deps?.sshHup || (x => process.kill(x, 'SIGHUP')))(pid); } catch {}
+  return { success: true, ...status(web), message: p.enabled ? 'Anmeldung mit Passwort ist wieder erlaubt.' : 'Anmeldung nur noch mit Schlüssel. Ohne Schlüssel kommt niemand mehr per SSH auf die Zentrale.' };
 }
 const run = (file, args) => new Promise((resolve, reject) => execFile(file, args, { timeout: 20000 }, (e, out, err) => e ? reject(Object.assign(fail('Der SSH-Dienst hat nicht wie erwartet reagiert', 502), { detail: String(err || e.message).slice(0, 200) })) : resolve(out)));
 
@@ -90,6 +113,8 @@ function removeKey(web, p) {
   let removed = null;
   const keep = lines.filter(line => { const k = parseLine(line); if (k && fingerprint(k.blob) === p.fingerprint) { removed = cleanComment(k.comment) || k.type; return false; } return true; });
   if (removed === null) throw fail('Schlüssel nicht gefunden', 404);
+  // Ohne Passwort-Anmeldung wäre das Entfernen des letzten Schlüssels ein Aussperren
+  if (!passwordLogin(readConfig(paths(web).config)) && !keep.some(line => parseLine(line))) throw fail('Das ist der letzte Schlüssel und die Anmeldung mit Passwort ist aus – dann käme niemand mehr per SSH auf die Zentrale. Erst einen anderen Schlüssel eintragen oder die Passwort-Anmeldung erlauben.', 409);
   writeKeys(file, keep.join('\n').replace(/\n*$/, '\n').replace(/^\n$/, ''));
   return { success: true, ...status(web), message: 'Schlüssel „' + removed + '“ entfernt. Wer ihn hatte, kann sich nicht mehr anmelden.' };
 }
@@ -122,7 +147,7 @@ let busy = false;
 async function exclusive(fn) { if (busy) throw fail('Eine Änderung läuft bereits; bitte kurz warten', 429); busy = true; try { return await fn(); } finally { busy = false; } }
 // Ohne SSH-Dienst (z. B. Testumgebung am PC) wird nichts geschrieben.
 const onCcu = fn => (web, p) => { if (!fs.existsSync(paths(web).init)) throw fail('Auf diesem System gibt es keinen SSH-Dienst', 501); return fn(web, p); };
-const POST = { setSshEnabled: onCcu(setEnabled), addSshKey: onCcu(addKey), removeSshKey: onCcu(removeKey), setSshPassword: onCcu(setPassword) };
+const POST = { setSshEnabled: onCcu(setEnabled), addSshKey: onCcu(addKey), removeSshKey: onCcu(removeKey), setSshPassword: onCcu(setPassword), setSshPasswordLogin: onCcu(setPasswordLogin) };
 
 async function handle(web, req, res, u, auth) {
   const method = u.pathname === '/api/' ? u.searchParams.get('method') : null;

@@ -54,18 +54,25 @@ class Wecker {
     if (!svc?.connected || !svc.client) throw fail('Jeep ist nicht verbunden. Bitte zuerst auf der Jeep-Seite anmelden.', 409);
     if (!pin) throw fail('Bitte zuerst die Uconnect-PIN speichern.', 409);
     if (this.state.busy) throw fail('Aktualisierung läuft bereits', 429);
-    if (this.plugged(svc) === false) throw fail('Der Jeep hängt laut letzter Meldung nicht am Ladekabel. Uconnect erlaubt das Aktualisieren nur, wenn er eingesteckt ist. Ohne Kabel ändert sich der Akkustand kaum – der gemerkte Wert bleibt gültig.', 409);
+    if (this.state.pinRejected) throw fail('Die Uconnect-PIN wurde zuletzt abgelehnt. Bitte die PIN neu speichern – bis dahin wird nichts gesendet (Schutz vor Sperre).', 409);
+    // Ohne Ladekabel (Freigabe Thomas 13.10.2026): nur VON HAND und nur „VF“ (Standort/Daten anfordern) – der Zeitplan nie.
+    const ohneKabel = this.plugged(svc) === false;
+    if (ohneKabel && reason !== 'von Hand') throw fail('Der Jeep hängt nicht am Ladekabel; automatisch wird er dann nicht geweckt.', 409);
+    if (ohneKabel && typeof svc.client.refreshLocation !== 'function') throw fail('Wecken ohne Ladekabel ist in dieser Version nicht verfügbar.', 409);
     const vins = (svc.rows || []).map(r => r.vin).filter(v => typeof v === 'string');
     if (!vins.length) throw fail('Kein Fahrzeug im Jeep-Konto gefunden', 404);
     this.state.busy = true; this.state.lastRun = new Date(this.now()).toISOString();
     try {
-      for (const vin of vins) await svc.client.deepRefresh(vin, pin);
-      this.state.lastResult = { ok: true, at: this.state.lastRun, reason, message: 'Fahrzeug geweckt; neue Daten kommen in wenigen Minuten.' };
-      // Neue Daten abholen, sobald das Auto gemeldet hat (die Bridge fragt die Cloud ohnehin regelmäßig ab).
+      for (const vin of vins) await (ohneKabel ? svc.client.refreshLocation(vin, pin) : svc.client.deepRefresh(vin, pin));
+      this.state.lastResult = { ok: true, at: this.state.lastRun, reason, weg: ohneKabel ? 'VF' : 'DEEPREFRESH', message: ohneKabel ? 'Jeep (ohne Ladekabel) per „Fahrzeug finden“ geweckt; Türstatus und Standort werden in etwa 1–2 Minuten neu gelesen.' : 'Fahrzeug geweckt; neue Daten kommen in wenigen Minuten.' };
+      // Neue Daten abholen, sobald das Auto gemeldet hat (die Bridge fragt die Cloud ohnehin regelmäßig ab); Türstatus nach 90 s neu lesen
       setTimeout(() => svc.refresh?.().catch(() => {}), 120000).unref?.();
+      try { require('./jeep-schloss').soon(90000); } catch {}
+      if (ohneKabel) console.log('[jeep-wecker] VF (ohne Ladekabel) von Hand gesendet – von Uconnect angenommen');
       return this.state.lastResult;
     } catch (e) {
       if (e.pinRejected) this.state.pinRejected = true;
+      if (ohneKabel) console.log('[jeep-wecker] VF (ohne Ladekabel) nicht angenommen: ' + (e.status ? e.message : 'Fehler'));
       this.state.lastResult = { ok: false, at: this.state.lastRun, reason, message: e.status ? e.message : 'Aktualisierung fehlgeschlagen' };
       throw e.status ? e : fail('Aktualisierung fehlgeschlagen', 502);
     } finally { this.state.busy = false; }

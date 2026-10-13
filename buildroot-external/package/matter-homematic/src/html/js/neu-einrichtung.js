@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ki: () => { const key = inp({ type: 'password', placeholder: 'Gemini-Schlüssel' });
       return quick([['Gemini-API-Schlüssel', key]], [['Speichern und einschalten', async () => { const r = await api('saveAssistent', { enabled: true, key: need(key, 'den Schlüssel') }); key.value = ''; return r.message || 'KI eingerichtet.'; }, 'primary']], 'Kostenlos auf aistudio.google.com → „Get API key“.'); }
   };
-  const main = shell({ title: 'Einrichtung (neue CCU3)', eyebrow: 'System', lead: 'Alles, was nach dem Aufsetzen einer neuen CCU3 eingetragen werden muss – Schritt für Schritt mit Adresse und Knopf. Grün = erledigt.' });
+  const main = shell({ title: 'Einrichtung (neue CCU3)', eyebrow: 'Für Fachleute', lead: 'Alles, was nach dem Aufsetzen einer neuen CCU3 eingetragen werden muss – Schritt für Schritt mit Adresse und Knopf. Grün = erledigt.' });
   const get = (m, q) => (q ? api(m, undefined, { query: q }) : api(m)).catch(() => null);
   const len = v => Array.isArray(v) ? v.length : 0;
   // [Gruppe, Titel, was eintragen, Seite, Zustandsprüfung (true = erledigt, false = offen, null = von Hand prüfen)]
@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['Zuhause', 'Geräte anlernen', 'Homematic-(IP-)Geräte anlernen; danach Namen vergeben.', '/anlernen.html', null],
     ['Zuhause', 'Räume und Gewerke', 'Räume anlegen und Geräte zuordnen; Gewerke (Licht, Heizung …) zuordnen.', '/raeume.html', async () => { const d = await get('getRaumZuordnung'); return d ? Object.keys(d.assign || {}).length > 0 || len(d.rooms) > 0 : null; }],
     ['Zuhause', 'Handy-Seite einrichten', 'Auf dem iPhone /mobil.html öffnen, „Zum Home-Bildschirm“ hinzufügen und über ☰ die Geräte auswählen.', '/mobil.html', async () => { const d = await get('getFavoriten'); return d ? (d.lists || []).some(l => l.name === 'Handy' && len(l.items)) : null; }],
-    ['Benachrichtigung & Sicherung', 'WhatsApp (Dienste & WhatsApp)', 'Handynummer mit Landesvorwahl und CallMeBot-API-Schlüssel; „Testnachricht“ senden. Wird für Ausfall-, Anmelde- und Lade-Meldungen genutzt.', '/services.html', async () => { const d = await get('getServiceStatus'); const s = d?.settings; return s ? !!(s.enabled && s.phone && s.hasKey) : null; }],
+    ['Benachrichtigung & Sicherung', 'WhatsApp (Benachrichtigungen)', 'Handynummer mit Landesvorwahl und CallMeBot-API-Schlüssel; „Testnachricht“ senden. Wird für Ausfall-, Anmelde- und Lade-Meldungen genutzt.', '/services.html', async () => { const d = await get('getServiceStatus'); const s = d?.settings; return s ? !!(s.enabled && s.phone && s.hasKey) : null; }],
     ['Benachrichtigung & Sicherung', 'WD (Netzspeicher) verbinden', 'Adresse der WD, Freigabe (z. B. ccu3-sicherung), Benutzer und Passwort – Passwort tippst du selbst. „Verbindung testen“.', '/backup-storage.html', async () => { const d = await get('getNetStorage'); const s = d?.settings || d; return s ? !!(s.enabled && s.host) : null; }],
     ['Benachrichtigung & Sicherung', 'Komplette Sicherung & Zeitplan', 'Erste Sicherung des kompletten Systems erstellen und einen Zeitplan einschalten; mit verbundener WD kommt jede Sicherung automatisch auch dorthin.', '/backup-storage.html', async () => { const d = await get('getCcuSicherungen'); return d ? len(d.sicherungen || d.files || d.list) > 0 : null; }],
     ['Zugang & Sicherheit', 'Firewall', 'Zugriffe auf Heimnetz beschränken (Voreinstellung prüfen).', '/firewall.html', null],
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
   main.append(panel('Stand', 'Grün = erledigt, Grau = noch offen, „von Hand prüfen“ = lässt sich nicht automatisch erkennen.', sum, h('button', { class: 'btn small', type: 'button', text: 'Neu prüfen', onclick: () => run() })),
     ...[...groups].map(([g, box]) => panel(g, null, box)));
   const origin = location.origin;
-  const FORM_OF = { 'Zeit & Standort': 'zeit', 'WhatsApp (Dienste & WhatsApp)': 'whatsapp', 'WD (Netzspeicher) verbinden': 'wd', 'Jeep-Konto verbinden': 'jeep', 'Uconnect-PIN speichern': 'pin', 'Smart Life': 'smartlife', 'SMART+ (LEDVANCE)': 'smartplus', 'KI-Assistent': 'ki', 'Komplette Sicherung & Zeitplan': 'sicherung', 'Ladeplatz festlegen': 'ladeplatz' };
+  const FORM_OF = { 'Zeit & Standort': 'zeit', 'WhatsApp (Benachrichtigungen)': 'whatsapp', 'WD (Netzspeicher) verbinden': 'wd', 'Jeep-Konto verbinden': 'jeep', 'Uconnect-PIN speichern': 'pin', 'Smart Life': 'smartlife', 'SMART+ (LEDVANCE)': 'smartplus', 'KI-Assistent': 'ki', 'Komplette Sicherung & Zeitplan': 'sicherung', 'Ladeplatz festlegen': 'ladeplatz' };
   // Einmal aufbauen (Eingaben bleiben stehen); „Neu prüfen“ und jedes Speichern aktualisieren nur die Zustände.
   const tags = [];
   STEPS.forEach(([g, title, what, href, check], i) => {

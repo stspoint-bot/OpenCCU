@@ -36,10 +36,11 @@ document.addEventListener('DOMContentLoaded', () => {
   dataPanel.hidden = true;
   // Fahrzeugdaten aktualisieren (Auto wecken) – alle X Stunden, ausschaltbar; PIN nur verschlüsselt auf der CCU
   const wk = { enabled: h('input', { type: 'checkbox' }), hours: h('select', {}, [2, 3, 4, 6, 8, 12, 24].map(n => h('option', { value: n, text: 'alle ' + n + ' Stunden' }))), pin: h('input', { type: 'password', inputmode: 'numeric', maxlength: 4, autocomplete: 'off', placeholder: '4 Ziffern' }) };
-  const wkSave = h('button', { class: 'btn primary', type: 'button', text: 'Speichern' }), wkNow = h('button', { class: 'btn', type: 'button', text: 'Jetzt aktualisieren' }), wkOut = h('p', { class: 'msg', role: 'status' }), wkState = h('p', { class: 'muted' });
+  // „Jetzt aktualisieren“ entfernt (13.10.2026): der Knopf „Daten aktualisieren“ oben weckt den Jeep jetzt selbst
+  const wkSave = h('button', { class: 'btn primary', type: 'button', text: 'Speichern' }), wkOut = h('p', { class: 'msg', role: 'status' }), wkState = h('p', { class: 'muted' });
   const wkPanel = panel('Fahrzeugdaten regelmäßig aktualisieren', 'Der Jeep meldet sich nur beim Fahren oder Laden. Hängt er am Ladekabel, weckt die Zentrale ihn im gewählten Abstand, damit er seinen Ladestand meldet – nur wenn die letzten Daten älter sind. Ohne Kabel lehnt Uconnect das ab; dann ändert sich der Akkustand kaum und der gemerkte Wert bleibt gültig. Dafür ist die Uconnect-PIN nötig.',
     h('div', { class: 'form' }, h('div', { class: 'wide' }, NEU.toggle(wk.enabled, 'Automatisch aktualisieren')), field('Abstand', wk.hours), field('Uconnect-PIN', wk.pin, 'Leer lassen, um die gespeicherte zu behalten. Wird nur verschlüsselt auf der CCU gespeichert.')),
-    h('div', { class: 'actions' }, wkSave, wkNow), wkState, wkOut);
+    h('div', { class: 'actions' }, wkSave), wkState, wkOut);
   const wkShow = s => {
     wk.enabled.checked = s.enabled; wk.hours.value = String(s.hours); wk.pin.value = ''; wk.pin.placeholder = s.hasPin ? 'gespeichert – leer lassen' : '4 Ziffern';
     const r = s.lastResult;
@@ -47,7 +48,6 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   const wkLoad = () => api('getJeepRefresh').then(wkShow).catch(e => msg(wkOut, e.message, 'bad'));
   wkSave.addEventListener('click', async () => { wkSave.disabled = true; try { const p = { enabled: wk.enabled.checked, hours: Number(wk.hours.value) }; if (wk.pin.value) p.pin = wk.pin.value; const r = await api('saveJeepRefresh', p); wkShow(r); msg(wkOut, r.message, 'ok'); } catch (e) { msg(wkOut, e.message, 'bad'); } finally { wkSave.disabled = false; wk.pin.value = ''; } });
-  wkNow.addEventListener('click', async () => { wkNow.disabled = true; msg(wkOut, 'Fahrzeug wird geweckt …'); try { const r = await api('runJeepRefresh', {}); wkShow(r.status); msg(wkOut, r.message, 'ok'); } catch (e) { msg(wkOut, e.message, 'bad'); wkLoad(); } finally { wkNow.disabled = false; } });
   // Fernsteuerung: Klima, Motor, Türen – nur was Uconnect für das Fahrzeug freigibt; gleiche PIN wie oben
   const fsList = h('div'), fsOut = h('p', { class: 'msg', role: 'status' }), fsState = h('p', { class: 'muted' });
   const fsPanel = panel('Fernsteuerung', 'Klima, Motor-Fernstart und Türen wie in der Jeep-App. Nutzt die oben gespeicherte Uconnect-PIN. Das Klima lässt sich auch in Automationen verwenden (z. B. bei Frost morgens vorheizen); Motor und Türen nur hier von Hand.', fsList, fsState, fsOut);
@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
   jwSave.addEventListener('click', async () => { jwSave.disabled = true; try { const p = { notPluggedTime: jw.notPluggedTime.value, nightLockTime: jw.nightLockTime.value }; for (const k of ['frost', 'gaveUp', 'notPlugged', 'low', 'tyres', 'nightLock']) p[k] = jw[k].checked; const r = await api('saveJeepWache', p); jwShow(r); msg(jwOut, r.message, 'ok'); } catch (e) { msg(jwOut, e.message, 'bad'); } finally { jwSave.disabled = false; } });
   main.append(mode, secure,
     panel('Verbindung', 'Mit E-Mail und Passwort der Jeep-App anmelden. Die Zugangsdaten werden verschlüsselt auf der CCU gespeichert; nach einem Neustart verbindet sich Jeep automatisch. „Abmelden“ entfernt den Zugang.', h('div', { class: 'row' }, conn, lastFetch), form, h('div', { class: 'actions' }, demo, refresh, logout, adminLink), out,
-      h('p', { class: 'muted', text: 'Automatischer Abruf alle fünf Minuten. „Aktualisieren“ liest die bei Jeep gespeicherte Meldung erneut. Eine neue Meldung vom Fahrzeug fordert der Bereich „Fahrzeugdaten regelmäßig aktualisieren“ an.' })),
+      h('p', { class: 'muted', text: 'Automatischer Abruf alle fünf Minuten. „Daten aktualisieren“ weckt den Jeep, damit er frische Daten schickt – am Ladekabel per „Fahrzeugdaten aktualisieren“, ohne Kabel per „Fahrzeug finden“ (dafür muss unten die Uconnect-PIN hinterlegt sein).' })),
     vehicles, zsPanel, posPanel, wkPanel, fsPanel, jwPanel, matterPanel, dataPanel,
     panel('Wenn die Anmeldung nicht klappt', null, h('p', { class: 'muted', text: 'Zuerst prüfen, ob die Anmeldung mit denselben Angaben in der Jeep-App klappt; Bestätigungen dort erledigen. Der Lesezugriff nutzt eine inoffizielle Uconnect-Schnittstelle.' }), h('a', { class: 'btn', href: 'https://myuconnect.jeep.com/', target: '_blank', rel: 'noopener noreferrer', text: 'Jeep-Konto öffnen ↗' })));
 
@@ -240,7 +240,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   form.addEventListener('submit', e => { e.preventDefault(); const p = { email: email.value, password: password.value }; password.value = ''; action(() => call('loginJeep', p)); });
   demo.addEventListener('click', () => action(() => call('loginJeep', { email: 'demo@example.invalid', password: 'DEMO' })));
-  refresh.addEventListener('click', () => action(() => admin ? call('refreshJeep', {}) : call('getJeepOverview')));
+  // „Daten aktualisieren“ weckt den Jeep (DEEPREFRESH, Wunsch Thomas 13.10.2026) und holt danach die Daten; nach 2 Minuten
+  // automatisch noch einmal, weil das Auto seine neue Meldung erst dann schickt. Geht Wecken nicht (kein Ladekabel, keine PIN),
+  // wird die zuletzt gespeicherte Meldung gelesen und der Grund genannt.
+  let nachholen = null;
+  refresh.addEventListener('click', async () => {
+    if (!admin) return action(() => call('getJeepOverview'));
+    if (busy) return;
+    let weck; refresh.disabled = true; msg(out, 'Jeep wird geweckt …', 'busy');
+    try { weck = await call('runJeepRefresh', {}); } catch (e) { weck = { fehler: e.message }; }
+    await action(() => call('refreshJeep', {}));
+    if (weck.fehler) msg(out, 'Jeep nicht geweckt: ' + weck.fehler + ' Angezeigt wird die zuletzt gespeicherte Meldung.', 'warn');
+    else {
+      msg(out, (weck.weg === 'VF' ? 'Jeep ohne Ladekabel über „Fahrzeug finden“ geweckt.' : 'Jeep geweckt.') + ' Er schickt seine neuen Daten (auch den Türstatus) in etwa 1–2 Minuten – die Seite holt sie dann automatisch.', 'ok');
+      clearTimeout(nachholen); nachholen = setTimeout(() => action(() => call('refreshJeep', {})), 120000);
+    }
+    try { wkLoad(); } catch {}
+  });
   logout.addEventListener('click', async () => { if (await confirmDialog({ title: 'Bei Jeep abmelden?', text: 'Der gespeicherte Jeep-Zugang wird entfernt; die automatische Anmeldung endet.', confirm: 'Abmelden', danger: true })) action(() => call('logoutJeep', {})); });
 
   // ---- Matter-Freigabe ----

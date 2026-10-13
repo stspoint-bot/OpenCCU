@@ -235,9 +235,11 @@ async function handle(web, req, res, u, auth) {
     if (!auth) { web.sendJson(res, 403, { error: 'Anmeldung erforderlich' }); return true; }
     if (req.method !== 'GET') { web.sendJson(res, 405, { error: 'GET erforderlich' }); return true; }
     try { listen(web.deps.getConnector?.()); } catch {}
-    const since = Date.now() - 30000, active = {};
-    for (const [k, r] of recent) { if (r.at < since) continue; const [address, key] = k.split('|'); if (!/^(PRESS_|STATE$|LEVEL$)/.test(key)) continue; const dev = address.split(':')[0]; if (!active[dev] || active[dev] < r.at) active[dev] = r.at; }
-    web.sendJson(res, 200, { now: new Date().toISOString(), active: Object.fromEntries(Object.entries(active).map(([d, t]) => [d, new Date(t).toISOString()])) });
+    const since = Date.now() - 30000, active = {}, pressed = {};
+    for (const [k, r] of recent) { if (r.at < since) continue; const [address, key] = k.split('|'); if (!/^(PRESS_|STATE$|LEVEL$)/.test(key)) continue; const dev = address.split(':')[0]; if (!active[dev] || active[dev] < r.at) active[dev] = r.at; if (/^PRESS_/.test(key) && (!pressed[address] || pressed[address] < r.at)) pressed[address] = r.at; }
+    // pressed: welche Taste (Kanal) zuletzt gedrückt wurde – für „Taste drücken“ im Verknüpfungs-Assistenten
+    const iso = o => Object.fromEntries(Object.entries(o).map(([d, t]) => [d, new Date(t).toISOString()]));
+    web.sendJson(res, 200, { now: new Date().toISOString(), active: iso(active), pressed: iso(pressed) });
     return true;
   }
   if (u.searchParams.get('method') === 'getGeraetLive') {

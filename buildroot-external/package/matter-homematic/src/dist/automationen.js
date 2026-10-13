@@ -677,6 +677,8 @@ function start(web, options) {
   if (!options) try { require('./jeep-fernsteuerung').attach(web); } catch {} // Jeep-Türschloss aus Apple Home (jeep-schloss.js)
   if (!options) try { require('./ccu-sicherung').start(web); } catch {} // Sicherungen auf die WD auslagern (alle 6 Stunden)
   if (!options) try { require('./jeep-laden').start(web); } catch { console.error('[jeep-laden] Start fehlgeschlagen (Details ausgelassen)'); }
+  if (!options) try { require('./tasmota-wache').start(web); } catch { console.error('[tasmota-wache] Start fehlgeschlagen (Details ausgelassen)'); }
+  if (!options) try { require('./dyson-adresse').start(web); } catch { console.error('[dyson-adresse] Start fehlgeschlagen (Details ausgelassen)'); }
   if (!options) try { require('./wetter').start(web); } catch { console.error('[wetter] Start fehlgeschlagen (Details ausgelassen)'); }
   if (!options) try { require('./raeume').start(web); } catch { console.error('[raeume] Start fehlgeschlagen (Details ausgelassen)'); }
   return e;

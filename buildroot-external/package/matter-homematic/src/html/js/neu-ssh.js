@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const { h, api, shell, panel, field, msg, task, stat, table, toggle, confirmDialog } = NEU;
   const main = shell({ title: 'SSH-Zugang', eyebrow: 'System', crumb: 'System', lead: 'Fernwartung der Zentrale über SSH: ein- oder ausschalten und festlegen, welche Schlüssel sich anmelden dürfen.' });
   const stats = h('div', { class: 'stats' }), admin = h('div'), out = h('p', { class: 'msg', role: 'status' }), keysOut = h('p', { class: 'msg', role: 'status' });
-  const enabled = h('input', { type: 'checkbox' });
+  const enabled = h('input', { type: 'checkbox' }), pwLogin = h('input', { type: 'checkbox' });
   const list = h('div');
   const key = h('textarea', { rows: 3, maxlength: 16384, spellcheck: 'false', autocomplete: 'off', placeholder: 'ssh-ed25519 AAAA… name@gerät' });
   const label = h('input', { maxlength: 64, autocomplete: 'off', placeholder: 'z. B. Laptop Thomas' });
@@ -52,25 +52,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const genPanel = panel('Neuen Schlüssel erzeugen und aktivieren', 'Erzeugt ein neues Schlüsselpaar direkt in diesem Browser und trägt den öffentlichen Teil sofort in der Zentrale ein. Den privaten Schlüssel lädst du herunter – nur er erlaubt die Anmeldung.', h('div', { class: 'form' }, field('Bezeichnung', genName, 'Für welches Gerät? z. B. „PC Thomas“.'), h('div', { class: 'wide actions' }, genBtn)), genOut, genFiles);
   const addForm = h('form', { class: 'form' }, field('Öffentlicher Schlüssel (Inhalt der .pub-Datei)', key, 'Nur den öffentlichen Schlüssel einfügen. Der private Schlüssel bleibt immer auf deinem Gerät.'), field('Bezeichnung', label, 'Damit du später weißt, wem der Schlüssel gehört.'), h('div', { class: 'wide actions' }, addBtn));
   main.append(admin, stats,
-    panel('SSH ein- oder ausschalten', 'Ist SSH aus, kann sich niemand per SSH anmelden – auch nicht für Fernwartung oder Installationen per SSH.', h('div', { class: 'form' }, h('div', { class: 'wide' }, toggle(enabled, 'SSH-Zugang eingeschaltet'))), out),
+    panel('SSH ein- oder ausschalten', 'Ist SSH aus, kann sich niemand per SSH anmelden – auch nicht für Fernwartung oder Installationen per SSH.', h('div', { class: 'form' }, h('div', { class: 'wide' }, toggle(enabled, 'SSH-Zugang eingeschaltet')), h('div', { class: 'wide' }, toggle(pwLogin, 'Anmeldung auch mit Passwort erlauben')), h('p', { class: 'muted wide', text: 'Empfohlen: aus – dann geht SSH nur mit einem eingetragenen Schlüssel. Ausschalten ist nur möglich, wenn mindestens ein Schlüssel eingetragen ist.' })), out),
     panel('Zugangsschlüssel', 'Wer einen dieser Schlüssel besitzt, kann sich ohne Passwort anmelden. Neue Schlüssel dürfen sich nur anmelden, nichts weiterleiten.', list, keysOut),
     genPanel,
     panel('Vorhandenen öffentlichen Schlüssel hinzufügen', null, addForm),
     panel('SSH-Passwort ändern', 'Passwort für die Anmeldung als „root“ per SSH. Es wird verschlüsselt in der Zentrale abgelegt und nirgends angezeigt.', pwForm, pwOut),
     panel('Gut zu wissen', null, h('ul', { class: 'steps' },
       h('li', {}, h('span', { text: 'Schlüssel sind sicherer als ein Passwort. Einen Schlüssel erzeugst du am PC mit „ssh-keygen -t ed25519“.' })),
-      h('li', {}, h('span', { text: 'Das SSH-Passwort änderst du hier unter „SSH-Passwort ändern“.' })),
+      h('li', {}, h('span', { text: 'Das SSH-Passwort änderst du hier unter „SSH-Passwort ändern“. Es gilt nur, solange „Anmeldung auch mit Passwort erlauben“ eingeschaltet ist.' })),
+      h('li', {}, h('span', { text: 'Ist die Passwort-Anmeldung aus und kein Schlüssel mehr da, käme niemand mehr per SSH auf die Zentrale. Deshalb lässt sich der letzte Schlüssel dann nicht entfernen.' })),
       h('li', {}, h('span', { text: 'Entfernst du einen Schlüssel, kann sich dessen Besitzer sofort nicht mehr anmelden.' })))));
   let isAdmin = false;
   function show(d) {
-    enabled.checked = d.enabled; enabled.disabled = !isAdmin || !d.available;
+    enabled.checked = d.enabled; enabled.disabled = !isAdmin || !d.available; pwLogin.checked = d.passwordLogin !== false; pwLogin.disabled = !isAdmin || !d.available;
     stats.replaceChildren(stat('SSH', d.enabled ? 'ein' : 'aus', d.available ? (d.running ? 'Dienst läuft' : 'Dienst läuft nicht') : 'auf diesem System nicht vorhanden', d.enabled ? (d.running ? 'ok' : 'warn') : undefined),
+      stat('Anmeldung', d.passwordLogin === false ? 'nur Schlüssel' : 'Schlüssel oder Passwort', d.passwordLogin === false ? 'sicher' : 'Passwort-Anmeldung ist erlaubt', d.passwordLogin === false ? 'ok' : 'warn'),
       stat('Schlüssel', String(d.keys.length), 'von höchstens ' + d.limits.keys));
     if (!d.available) out.replaceChildren(h('span', { text: 'Testumgebung: SSH gibt es nur auf der echten CCU3.' }));
     list.replaceChildren(d.keys.length ? table(['Bezeichnung', 'Art', 'Fingerabdruck', 'Rechte', ''], d.keys.map(k => {
       const del = h('button', { class: 'btn danger small', type: 'button', text: 'Entfernen', disabled: !isAdmin });
       del.addEventListener('click', async () => {
-        if (!await confirmDialog({ title: 'Schlüssel „' + (k.comment || k.type) + '“ entfernen?', text: 'Wer diesen Schlüssel besitzt, kann sich danach nicht mehr per SSH anmelden.' + (d.keys.length === 1 ? ' Das ist der letzte Schlüssel – danach geht SSH nur noch mit Passwort.' : ''), confirm: 'Entfernen', danger: true })) return;
+        if (!await confirmDialog({ title: 'Schlüssel „' + (k.comment || k.type) + '“ entfernen?', text: 'Wer diesen Schlüssel besitzt, kann sich danach nicht mehr per SSH anmelden.' + (d.keys.length === 1 ? (d.passwordLogin === false ? ' Das ist der letzte Schlüssel und die Passwort-Anmeldung ist aus – das wird abgelehnt.' : ' Das ist der letzte Schlüssel – danach geht SSH nur noch mit Passwort.') : ''), confirm: 'Entfernen', danger: true })) return;
         task(del, keysOut, async () => { const r = await api('removeSshKey', { fingerprint: k.fingerprint }); show(r); return r.message; });
       });
       return h('tr', {}, h('td', { text: k.comment || '–' }), h('td', { text: k.type }), h('td', { class: 'mono', text: k.fingerprint }), h('td', { text: k.restricted ? 'nur Anmelden' : 'uneingeschränkt' }), h('td', {}, del));
@@ -80,6 +82,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const want = enabled.checked;
     if (!want && !await confirmDialog({ title: 'SSH ausschalten?', text: 'Danach ist keine Anmeldung per SSH mehr möglich – auch keine Fernwartung oder Installation per SSH. Einschalten geht jederzeit wieder hier.', confirm: 'Ausschalten', danger: true })) { enabled.checked = true; return; }
     task(enabled, out, async () => { try { const r = await api('setSshEnabled', { enabled: want }); show(r); return r.message; } catch (e) { enabled.checked = !want; throw e; } }, want ? 'SSH wird eingeschaltet …' : 'SSH wird ausgeschaltet …');
+  });
+  pwLogin.addEventListener('change', async () => {
+    const want = pwLogin.checked;
+    if (!want && !await confirmDialog({ title: 'Nur noch mit Schlüssel anmelden?', text: 'Danach kommt nur noch per SSH auf die Zentrale, wer einen der eingetragenen Schlüssel hat. Dein privater Schlüssel muss auf deinem PC liegen.', confirm: 'Nur Schlüssel', danger: true })) { pwLogin.checked = true; return; }
+    task(pwLogin, out, async () => { try { const r = await api('setSshPasswordLogin', { enabled: want }); show(r); return r.message; } catch (e) { pwLogin.checked = !want; throw e; } }, 'Wird gespeichert …');
   });
   addForm.addEventListener('submit', e => { e.preventDefault(); task(addBtn, keysOut, async () => {
     const p = { key: key.value }; if (label.value.trim()) p.comment = label.value.trim();

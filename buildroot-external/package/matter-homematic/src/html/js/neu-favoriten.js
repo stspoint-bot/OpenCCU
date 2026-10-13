@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let admin = false, data = { lists: [] }, devices = new Map(), wetter = null, editing = false, draft = null, timer = null;
   const de = (v, n = 1) => Number(v).toLocaleString('de-DE', { minimumFractionDigits: n, maximumFractionDigits: n });
   const pill = (on, a, b) => h('span', { class: 'tag ' + (on ? 'ok' : ''), text: on ? a : b });
+  // Ein/Aus als Symbol-Knopf (Wunsch Thomas 13.10.2026)
+  const pw = (art, on, label, fn) => { const b = NEU.powerButton(art, on === true, label); b.addEventListener('click', async () => { b.disabled = true; try { await fn(); } catch (e) { msg(out, e.message, 'bad'); } finally { b.disabled = false; } }); return b; };
   const btn = (text, fn, cls = '') => { const b = h('button', { class: 'btn small ' + cls, type: 'button', text }); b.addEventListener('click', async () => { b.disabled = true; try { await fn(); } catch (e) { msg(out, e.message, 'bad'); } finally { b.disabled = false; } }); return b; };
   const after = () => setTimeout(load, 1500);
 
@@ -34,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (r) box.append(h('span', { text: r }));
       if (d.online === false) { box.append(h('span', { class: 'tag bad', text: 'Offline' })); return box; }
       if ((d.capabilities || {}).kind !== 'sensor' && PROVIDERS[d.provider] && typeof st.on === 'boolean') {
-        box.append(pill(st.on, 'Ein', 'Aus'), btn(st.on ? 'Ausschalten' : 'Einschalten', async () => { const r2 = await api(PROVIDERS[d.provider], { id: d.id, command: { on: !st.on } }); msg(out, r2.message || 'Übergeben.', 'ok'); after(); }, st.on ? '' : 'primary'));
+        box.append(pw((d.capabilities || {}).brightness || (d.capabilities || {}).kind === 'light' ? 'licht' : d.provider === 'dyson' ? 'luefter' : 'stecker', st.on, d.name, async () => { const r2 = await api(PROVIDERS[d.provider], { id: d.id, command: { on: !st.on } }); msg(out, r2.message || 'Übergeben.', 'ok'); after(); }));
       }
       return box;
     }
@@ -53,8 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (d.switchControl && d.switchControl.allowed) {
       const s = d.switchState;
-      box.append(h('span', { class: 'tag ' + (s === true ? 'ok' : s === false ? '' : 'warn'), text: s === true ? 'Ein' : s === false ? 'Aus' : 'Unbekannt' }));
-      box.append(btn(s === true ? 'Ausschalten' : 'Einschalten', async () => { const r2 = await api('setSwitchState', { address: d.address, state: s !== true }); msg(out, r2.message || 'Übergeben.', 'ok'); after(); }, s === true ? '' : 'primary'));
+      if (s !== true && s !== false) box.append(h('span', { class: 'tag warn', text: 'Unbekannt' }));
+      box.append(pw(/Light/.test(d.matterDeviceType || '') ? 'licht' : 'stecker', s === true, d.name, async () => { const r2 = await api('setSwitchState', { address: d.address, state: s !== true }); msg(out, r2.message || 'Übergeben.', 'ok'); after(); }));
       return box;
     }
     if (Number.isFinite(st.localTemperature)) box.append(h('span', { text: de(st.localTemperature / 100) + ' °C' + (Number.isFinite(st.occupiedHeatingSetpoint) ? ' → ' + de(st.occupiedHeatingSetpoint / 100) + ' °C' : '') }));

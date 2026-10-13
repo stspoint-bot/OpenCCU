@@ -151,6 +151,14 @@ class SmartlifeLokal extends Smartplus {
     this.platform = options.platform || process.platform;
     this.discoveryOptions = options.discovery || {};
   }
+  // Apple-Home-Abgleich je Gerät nacheinander (13.10.2026): Abfrage und Gerätemeldung kamen oft gleichzeitig →
+  // zwei Schreibvorgänge auf dasselbe Gerät, Protokoll voll mit „Transaction … waiting on …“. Läuft schon einer,
+  // wird danach genau EINMAL mit dem dann neuesten Stand nachgezogen (nichts geht verloren).
+  sync(entry) {
+    if (entry.syncRun) { entry.syncAgain = true; return entry.syncRun; }
+    const run = async () => { try { do { entry.syncAgain = false; await super.sync(entry); } while (entry.syncAgain && !this.stopped); } finally { entry.syncRun = null; entry.syncAgain = false; } };
+    return (entry.syncRun = run());
+  }
   async start() {
     await super.start();
     if (this.stopped) return;
@@ -219,8 +227,20 @@ class SmartlifeLokal extends Smartplus {
       if (!this.stopped) { await this.feedback(entry, data); if (entry.localOnline) { entry.failures = 0; this.remember(entry); } }
     } catch {
       this.offline(entry); entry.client.disconnect(); entry.failures = (entry.failures || 0) + 1;
-      if (entry.failures >= 2) { entry.client.device.ip = undefined; delete this.addresses[entry.item.id]; }
+      // Adresse nur aufgeben, wenn das Gerät nicht mehr unter dieser IP im Heimnetz steht (13.10.2026, live gefunden):
+      // Tuya-Steckdosen erlauben meist nur EINE direkte Verbindung – hält sie die Smart-Life-App im selben WLAN, wird die Bridge
+      // abgewiesen. Früher war die Adresse dann nach 2 Versuchen weg und die Suche lief erst nach bis zu 1 h; jetzt alle 30 s neu.
+      if (entry.failures >= 2 && !this.stillThere(entry)) { entry.client.device.ip = undefined; delete this.addresses[entry.item.id]; }
+      entry.blockedHint = entry.failures >= 2 && this.stillThere(entry);
     } finally { entry.busy = false; }
+  }
+  // Steht das Gerät (MAC aus der Geräte-ID) laut Nachbarliste noch unter seiner bekannten IP? Nur Linux, nur lesen.
+  stillThere(entry) {
+    try {
+      if (this.platform !== 'linux' || !entry.client?.device?.ip) return false;
+      const { macFor, neighbors } = require('./tuya-discovery'), mac = macFor(entry.item.id); if (!mac) return false;
+      return neighbors((this.discoveryOptions.readArp || (() => require('node:fs').readFileSync('/proc/net/arp', 'utf8')))()).get(mac) === entry.client.device.ip;
+    } catch { return false; }
   }
   async feedback(entry, data) {
     if (this.stopped) return;

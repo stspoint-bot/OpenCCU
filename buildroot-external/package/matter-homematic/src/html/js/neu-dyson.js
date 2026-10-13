@@ -55,7 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
       h('div', { class: 'muted' }, 'Modell ' + d.type + (d.ip ? ' · ' + d.ip : '') + (d.online ? '' : ' · Adresse wird automatisch gesucht')),
       h('div', {}, h('b', { text: 'Zustand: ' + state }), st.auto ? ' · Automatik' : '', Number.isFinite(st.speed) ? ' · Stufe ' + st.speed : '', readings ? h('div', { class: 'muted', text: readings }) : null),
       d.controlStatus && d.controlStatus.confirmed === false ? h('div', { class: 'notice bad', text: d.controlStatus.message }) : null,
-      h('div', { class: 'row' }, st.on !== true ? btn('Einschalten', { on: true }, true) : null, st.on !== false ? btn('Ausschalten', { on: false }) : null, btn('Automatik', { on: true, auto: true }),
+      // Ein/Aus als EIN Symbol-Knopf (Ventilator; Wunsch Thomas 13.10.2026)
+      h('div', { class: 'row' }, (() => { const b = NEU.powerButton('luefter', st.on === true, d.name); b.disabled = !d.online; b.addEventListener('click', () => send(b, { on: st.on !== true })); return b; })(), btn('Automatik', { on: true, auto: true }),
         d.capabilities && d.capabilities.oscillation ? btn(st.oscillation ? 'Oszillation aus' : 'Oszillation ein', { oscillation: !st.oscillation }) : null,
         d.capabilities && d.capabilities.night ? btn(st.night ? 'Nachtmodus aus' : 'Nachtmodus ein', { night: !st.night }) : null),
       h('div', { class: 'row' }, speed, speedBtn),

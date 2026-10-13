@@ -66,7 +66,8 @@ async function candidates(web) {
       const src = roles(d.LINK_SOURCE_ROLES), dst = roles(d.LINK_TARGET_ROLES); if (!src.length && !dst.length) continue;
       const row = rows.find(r => r.address === d.ADDRESS), ch = channels.get(d.ADDRESS), parent = channels.get(dev(d.ADDRESS) + ':0');
       const name = row?.name || (ch?.name && !ch.name.includes(dev(d.ADDRESS)) ? ch.name : '') || ((parent?.name || dev(d.ADDRESS)).replace(/:\d+$/, '') + ' Kanal ' + d.ADDRESS.split(':')[1]);
-      out.push({ interface: iface, address: d.ADDRESS, name: text(name, 80), room: text(row?.room || ch?.room || '', 80), type: text(d.PARENT_TYPE || '', 40), source: src, target: dst });
+      // channelType (z. B. KEY_TRANSCEIVER, SWITCH_VIRTUAL_RECEIVER) für den Assistenten: Art in Worten, gleichartige Kanäle bündeln
+      out.push({ interface: iface, address: d.ADDRESS, name: text(name, 80), room: text(row?.room || ch?.room || '', 80), type: text(d.PARENT_TYPE || '', 40), channelType: text(d.TYPE || '', 60), source: src, target: dst });
     }
   }
   return { channels: out.sort((a, b) => a.name.localeCompare(b.name, 'de')) };

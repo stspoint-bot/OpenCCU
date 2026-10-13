@@ -51,8 +51,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (p1.value !== p2.value) throw Error('Die Passwörter stimmen nicht überein.');
     const r = await api('saveBenutzer', { action: 'add', name: name.value.trim(), role: role.value, password: p1.value }); p1.value = p2.value = ''; name.value = ''; render(r); return 'Benutzer angelegt.';
   }));
+  // CCU-Administrator-Passwort (Wunsch Thomas 13.10.2026): bei einer neuen CCU ohne Passwort hier setzen; ein vorhandenes wird nie überschrieben
+  const ccuBox = h('div'), cOut = h('p', { class: 'msg', role: 'status' });
+  adminBox.prepend(ccuBox);
+  function ccuShow(st) {
+    if (!st.admin) { ccuBox.replaceChildren(); return; }
+    if (st.hasPassword) { ccuBox.replaceChildren(panel('CCU-Administrator', null, h('p', {}, h('span', { class: 'tag ok', text: 'Passwort gesetzt' }), h('span', { class: 'muted', text: ' Ändern nur über die CCU-Oberfläche (Einstellungen → Benutzerverwaltung).' })), cOut)); return; }
+    const a = pw('Neues CCU-Passwort'), b = pw('Wiederholen'), go = h('button', { class: 'btn primary', type: 'button', text: 'Passwort setzen' });
+    go.addEventListener('click', () => task(go, cOut, async () => { if (a.value !== b.value) throw Error('Die Passwörter stimmen nicht überein.'); const r = await api('setCcuAdminPasswort', { password: a.value }); a.value = b.value = ''; ccuShow(r.hasPassword ? { admin: true, hasPassword: true } : st); return r.message; }));
+    ccuBox.replaceChildren(panel('CCU-Administrator ohne Passwort', 'Achtung: Der Benutzer „Admin“ der CCU hat noch kein Passwort – jeder im Heimnetz kann sich anmelden. Bitte jetzt ein Passwort setzen (10 bis 64 Zeichen, Buchstaben und Ziffern, keine Leerzeichen, keine Umlaute, kein " und kein \\). Es gilt danach für die Anmeldung hier und in der CCU.',
+      h('div', { class: 'form' }, field('Neues Passwort', a), field('Wiederholen', b)), h('div', { class: 'actions' }, go), cOut));
+  }
   // Nur wer die Liste lesen darf (Administrator), sieht die Verwaltung; Bewohner/Gäste sehen nur ihr Konto
-  api('getBenutzer', undefined, { errorField: false }).then(d => { adminBox.hidden = false; render(d); }).catch(() => { adminBox.hidden = true; });
+  api('getBenutzer', undefined, { errorField: false }).then(d => { adminBox.hidden = false; render(d); api('getCcuAdmin', undefined, { errorField: false }).then(ccuShow).catch(() => {}); }).catch(() => { adminBox.hidden = true; });
   // Alte Adresse /benutzer.html: Anker zur Verwaltung
   if (location.hash === '#benutzer') setTimeout(() => adminBox.scrollIntoView(), 600);
 });

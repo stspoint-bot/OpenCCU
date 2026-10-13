@@ -23,7 +23,8 @@ function normalize(p) {
   return s;
 }
 const settings = web => { try { const c = web.security.configSnapshot.read().batterie; return isObject(c) ? normalize(c) : { ...DEFAULTS }; } catch { return { ...DEFAULTS }; } };
-const weak = web => { try { return require('./ccu-zentrale')._internal.messages(web).filter(m => BATTERY.has(m.type)).map(m => ({ id: m.id, device: m.device, room: m.room, address: m.address })); } catch { return []; } };
+// Geräte mit abgeschalteten Meldungen (meldungen-aus.js, „Geräte (neu)“) zählen nicht
+const weak = web => { try { const M = require('./meldungen-aus'); return require('./ccu-zentrale')._internal.messages(web).filter(m => BATTERY.has(m.type) && !M.isOff(web, m.address)).map(m => ({ id: m.id, device: m.device, room: m.room, address: m.address })); } catch { return []; } };
 // Ablaufdatum des kostenlosen Tuya-Zugangs (IoT Core), von Thomas einmal eingetragen; 14 Tage vorher kommt eine Erinnerung
 const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/, REMIND_DAYS = 14;
 const tuyaAblauf = web => { try { const v = web.security.configSnapshot.read().tuyaZugang?.ablauf; return typeof v === 'string' && DATE.test(v) ? v : ''; } catch { return ''; } };
@@ -41,7 +42,8 @@ class Watcher {
     try { const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); if (Number.isFinite(raw.tuyaAt)) this.state.tuyaAt = raw.tuyaAt; if (typeof raw.tuyaReminded === 'string' && DATE.test(raw.tuyaReminded)) this.state.tuyaReminded = raw.tuyaReminded; } catch {}
     try { const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); if (isObject(raw.reported)) for (const [k, v] of Object.entries(raw.reported)) if (typeof k === 'string' && k.length <= 80 && Number.isFinite(v)) this.state.reported[k] = v; if (typeof raw.lastDay === 'string' && raw.lastDay.length <= 12) this.state.lastDay = raw.lastDay; if (Array.isArray(raw.log)) this.state.log = raw.log.filter(isObject).slice(-LOG); } catch {}
   }
-  save() { try { require('./durable-storage').atomicJson(this.file, this.state); } catch {} }
+  // SD-Karte schonen (13.10.2026): nur schreiben, wenn sich der Zustand geändert hat
+  save() { try { const s = JSON.stringify(this.state); if (s === this.savedJson) return; require('./durable-storage').atomicJson(this.file, this.state); this.savedJson = s; } catch {} }
   start() { if (this.timer) return; this.startedAt = this.now(); this.timer = setInterval(() => this.tick().catch(() => {}), this.tickMs); this.timer.unref?.(); }
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
   async tick() {
