@@ -31,6 +31,18 @@ rmf rega/pages/tabs/startpage.htm rega/pages/tabs/guest rega/pages/tabs/control.
     rega/pages/tabs/admin/views/newDeviceLoader.htm rega/pages/tabs/admin/views/newdevicechannelsloader.htm \
     rega/pages/msg/programChooser.htm rega/esp/favorites.htm
 
+# Rest der alten Oberflaeche (13.10.2026, live getestet: /www per Bind-Mount ohne diese Teile, 56 -> 16 MB; Bridge, JSON-RPC, ReGa unveraendert):
+# alte WebUI (webui, pda), ise-Oberflaeche, ReGa-Seitenvorlagen, uebrige Konfig-Dialoge/Hilfsdateien. Bleiben: api, tcl, tools, upnp, addons,
+# config/devdescr + config/img/devices (Geraetebilder fuer die Matter-Oberflaeche), control_panel.cgi, cp_security.cgi, backup.tcl, stringtable.
+rmf webui pda ise/htm ise/js ise/img rega/pages
+rmf config/cp_add_device.cgi config/cp_advancedsettings.cgi config/cp_display.cgi config/cp_maintenance.cgi config/cp_network.cgi \
+    config/cp_software.cgi config/cp_time.cgi config/help.cgi config/st_values.cgi config/st_values.js config/display \
+    config/virtualHelp.tcl config/fileupload.ccc config/easymodes
+for f in "${W}"/config/ic_*.cgi "${W}"/config/ic_*.tcl; do rm -f "$f"; done
+if [ -d "${W}/config/img" ]; then
+  for d in "${W}"/config/img/*; do [ "$(basename "$d")" = devices ] || rm -rf "$d"; done
+fi
+
 # Fehlerseiten: statt der alten WebUI-Seiten (mit Uebersetzungsschluesseln) die eigene "startet neu"-Seite
 if [ -f "$ERRPAGE" ]; then
   mkdir -p "${W}/error"
