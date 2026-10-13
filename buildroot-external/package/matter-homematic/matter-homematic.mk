@@ -27,6 +27,8 @@ endef
 define MATTER_HOMEMATIC_INSTALL_INIT_SYSV
 	$(INSTALL) -D -m 0755 $(MATTER_HOMEMATIC_PKGDIR)/S97matter-homematic \
 		$(TARGET_DIR)/etc/init.d/S97matter-homematic
+	$(INSTALL) -D -m 0755 $(MATTER_HOMEMATIC_PKGDIR)/S46ccu3-guard \
+		$(TARGET_DIR)/etc/init.d/S46ccu3-guard
 	$(INSTALL) -D -m 0755 $(MATTER_HOMEMATIC_PKGDIR)/S96netzspeicher \
 		$(TARGET_DIR)/etc/init.d/S96netzspeicher
 endef

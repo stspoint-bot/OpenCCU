@@ -52,6 +52,14 @@ start() {
     echo "" >/var/etc/lighttpd_httpsredirect.conf
   fi
 
+  # CCU3-neu: Matter-Oberflaeche (Reverse-Proxy auf die Bridge, https://<CCU>/) fest im Abbild. Existiert eine aeltere Benutzerkopie derselben
+  # Regeln (/etc/config/lighttpd/ccu3-neu.conf), bleibt diese massgeblich: doppelte Eintraege wuerden lighttpd am Start hindern.
+  if [[ -f /etc/lighttpd/conf.d/matter-proxy.conf ]] && [[ ! -f /etc/config/lighttpd/ccu3-neu.conf ]]; then
+    echo "include \"/etc/lighttpd/conf.d/matter-proxy.conf\"" >/var/etc/lighttpd_matter.conf
+  else
+    echo "" >/var/etc/lighttpd_matter.conf
+  fi
+
   # activate/deactivate RemoteAPI ports
   if [[ -f /var/status/startupFinished ]]; then
     echo "include \"/etc/lighttpd/conf.d/webui_remoteapi.conf\"" >/var/etc/lighttpd_webui_remoteapi.conf
@@ -98,6 +106,14 @@ reload() {
     echo "include \"/etc/lighttpd/conf.d/httpsredirect.conf\"" >/var/etc/lighttpd_httpsredirect.conf
   else
     echo "" >/var/etc/lighttpd_httpsredirect.conf
+  fi
+
+  # CCU3-neu: Matter-Oberflaeche (Reverse-Proxy auf die Bridge, https://<CCU>/) fest im Abbild. Existiert eine aeltere Benutzerkopie derselben
+  # Regeln (/etc/config/lighttpd/ccu3-neu.conf), bleibt diese massgeblich: doppelte Eintraege wuerden lighttpd am Start hindern.
+  if [[ -f /etc/lighttpd/conf.d/matter-proxy.conf ]] && [[ ! -f /etc/config/lighttpd/ccu3-neu.conf ]]; then
+    echo "include \"/etc/lighttpd/conf.d/matter-proxy.conf\"" >/var/etc/lighttpd_matter.conf
+  else
+    echo "" >/var/etc/lighttpd_matter.conf
   fi
 
   # activate/deactivate RemoteAPI ports

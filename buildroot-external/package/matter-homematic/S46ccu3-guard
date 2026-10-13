@@ -1,0 +1,43 @@
+#!/bin/sh
+# CCU3-neu Ueberlastschutz (Chat1, 12.10.2026): begrenzt je Absender-IP die gleichzeitigen Verbindungen und neuen Verbindungen
+# pro Sekunde auf die Web-Ports 80/443. Verhindert, dass ein Client (Absturz-/Fehlbedienung, Test, Schadsoftware) den gemeinsamen
+# lighttpd-Verbindungspool (~200, auch fuer die Funk-Schnittstellen) ausschoepft. Regeln liegen in der mangle-Tabelle (eigene Kette
+# CCU3_GUARD), damit die Bridge-Firewall (filter-Tabelle, setfirewall.tcl) sie nicht ueberschreibt. Ausgenommen: Anfragen von der CCU selbst (127.0.0.0/8, ::1) und das Tailscale-Netz (100.64.0.0/10, fd7a:115c:a1e0::/48). Port 22 wird nicht beruehrt.
+# Im Abbild als /etc/init.d/S46ccu3-guard; die gleiche Regel ist idempotent (eine aeltere Kopie unter rc.d/ccu3-neu-guard stoert nicht).
+MAXCONN=60        # gleichzeitige Verbindungen je Absender-IP
+RATE=60           # neue Verbindungen je Sekunde und Absender-IP (Dauer)
+BURST=120         # kurzzeitig erlaubte Spitze
+apply() {
+  T=$1; IPT=$2; LO=$3
+  $IPT -t mangle -N CCU3_GUARD 2>/dev/null
+  $IPT -t mangle -F CCU3_GUARD
+  $IPT -t mangle -A CCU3_GUARD -s $LO -j RETURN
+  [ "$T" = "32" ] && $IPT -t mangle -A CCU3_GUARD -s 100.64.0.0/10 -j RETURN
+  $IPT -t mangle -A CCU3_GUARD -p tcp --syn -m connlimit --connlimit-above $MAXCONN --connlimit-mask $T --connlimit-saddr -j DROP
+  $IPT -t mangle -A CCU3_GUARD -p tcp --syn -m hashlimit --hashlimit-name ccu3guard$T --hashlimit-above $RATE/second --hashlimit-burst $BURST --hashlimit-mode srcip -j DROP
+  $IPT -t mangle -C PREROUTING -p tcp -m multiport --dports 80,443 -j CCU3_GUARD 2>/dev/null || $IPT -t mangle -I PREROUTING -p tcp -m multiport --dports 80,443 -j CCU3_GUARD
+}
+stop_one() {
+  IPT=$1
+  while $IPT -t mangle -D PREROUTING -p tcp -m multiport --dports 80,443 -j CCU3_GUARD 2>/dev/null; do :; done
+  $IPT -t mangle -F CCU3_GUARD 2>/dev/null; $IPT -t mangle -X CCU3_GUARD 2>/dev/null
+}
+case "$1" in
+  start|restart)
+    modprobe xt_connlimit 2>/dev/null; modprobe xt_hashlimit 2>/dev/null
+    apply 32 iptables 127.0.0.0/8
+    ip6tables -t mangle -N CCU3_GUARD 2>/dev/null
+    ip6tables -t mangle -F CCU3_GUARD
+    ip6tables -t mangle -A CCU3_GUARD -s ::1/128 -j RETURN
+    ip6tables -t mangle -A CCU3_GUARD -s fd7a:115c:a1e0::/48 -j RETURN
+    ip6tables -t mangle -A CCU3_GUARD -p tcp --syn -m connlimit --connlimit-above $MAXCONN --connlimit-mask 128 --connlimit-saddr -j DROP
+    ip6tables -t mangle -A CCU3_GUARD -p tcp --syn -m hashlimit --hashlimit-name ccu3guard6 --hashlimit-above $RATE/second --hashlimit-burst $BURST --hashlimit-mode srcip -j DROP
+    ip6tables -t mangle -C PREROUTING -p tcp -m multiport --dports 80,443 -j CCU3_GUARD 2>/dev/null || ip6tables -t mangle -I PREROUTING -p tcp -m multiport --dports 80,443 -j CCU3_GUARD
+    ;;
+  stop) stop_one iptables; stop_one ip6tables ;;
+  status) iptables -t mangle -S CCU3_GUARD 2>/dev/null | head -5 ;;
+  info) echo "Name: CCU3-neu Ueberlastschutz"; echo "Version: 1"; echo "Info: begrenzt Verbindungen je IP auf Port 80/443" ;;
+  init) exit 0 ;;
+  *) echo "Usage: $0 {start|stop|restart|status|info}" >&2; exit 1 ;;
+esac
+exit 0
