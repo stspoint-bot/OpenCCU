@@ -1,9 +1,19 @@
-name: CCU3-neu Build (rpi3)
+name: CCU3-neu Build (rpi3 / ova)
 # Vollautomatisch: baut bis zu 5h40 pro Lauf, speichert Quellen + ccache, startet sich bei unfertigem Bau selbst neu
-# (max. 8 Laeufe hintereinander) und legt das fertige Image als Release "build-<datum>-<lauf>" ab.
+# (max. 8 Laeufe hintereinander) und legt das fertige Image als Release ab:
+#   product=rpi3 (Standard)  -> Release "build-<datum>-<lauf>"  (OpenCCU-*-rpi3.zip + .sha256)
+#   product=ova  (x86-64)    -> Release "ova-<datum>-<lauf>"    (OpenCCU-*-ova.zip + .sha256 = rohes Image, OpenCCU-*.ova + .sha256 = OVA)
+# Die getrennten Tag-Namen verhindern, dass ein x86-Release als "neuestes Raspberry-Image" gefunden wird.
 on:
   workflow_dispatch:
     inputs:
+      product:
+        description: 'Produkt: rpi3 (CCU3) oder ova (x86-64, z. B. Proxmox/Beelink)'
+        default: 'rpi3'
+        type: choice
+        options:
+          - rpi3
+          - ova
       attempt:
         description: 'Laufende Nummer der Fortsetzung (nicht von Hand setzen)'
         default: '1'
@@ -15,7 +25,13 @@ jobs:
       contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 355
+    env:
+      PRODUCT: ${{ github.event.inputs.product }}
     steps:
+      - name: Produkt pruefen
+        run: |
+          case "$PRODUCT" in rpi3|ova) echo "Produkt: $PRODUCT";; *) echo "Unbekanntes Produkt: $PRODUCT"; exit 1;; esac
+
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -31,15 +47,17 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /mnt/work/download
-          key: dl-rpi3-${{ github.run_id }}
-          restore-keys: dl-rpi3-
+          key: dl-${{ github.event.inputs.product }}-${{ github.run_id }}
+          restore-keys: |
+            dl-${{ github.event.inputs.product }}-
+            dl-
 
       - name: Cache ccache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /mnt/work/ccache
-          key: cc-rpi3-${{ github.run_id }}
-          restore-keys: cc-rpi3-
+          key: cc-${{ github.event.inputs.product }}-${{ github.run_id }}
+          restore-keys: cc-${{ github.event.inputs.product }}-
 
       - name: Build (max. 5h40)
         id: build
@@ -47,12 +65,12 @@ jobs:
           mkdir -p /mnt/work/download /mnt/work/ccache
           DATE=$(date +%Y%m%d)
           set +e
-          timeout 20400 nice -n 19 make DATE=$DATE BR2_DL_DIR=/mnt/work/download BR2_CCACHE_DIR=/mnt/work/ccache BR2_JLEVEL=$(nproc) PRODUCT=rpi3 release > /mnt/work/build.log 2>&1
+          timeout 20400 nice -n 19 make DATE=$DATE BR2_DL_DIR=/mnt/work/download BR2_CCACHE_DIR=/mnt/work/ccache BR2_JLEVEL=$(nproc) PRODUCT="$PRODUCT" release > /mnt/work/build.log 2>&1
           RC=$?
           echo "make exit: $RC"
           tail -n 40 /mnt/work/build.log
           ls -la release/ || true
-          if ls release/OpenCCU-*-rpi3.zip >/dev/null 2>&1; then echo "done=true" >> "$GITHUB_OUTPUT"; else echo "done=false" >> "$GITHUB_OUTPUT"; fi
+          if ls release/OpenCCU-*-"$PRODUCT".zip >/dev/null 2>&1; then echo "done=true" >> "$GITHUB_OUTPUT"; else echo "done=false" >> "$GITHUB_OUTPUT"; fi
           echo "rc=$RC" >> "$GITHUB_OUTPUT"
 
       - name: Fertiges Image als Release ablegen
@@ -60,8 +78,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="build-$(date +%Y%m%d)-${{ github.run_id }}"
-          gh release create "$TAG" release/OpenCCU-*-rpi3.zip* /mnt/work/build.log --title "CCU3-neu $TAG" --notes "Automatischer Bau (rpi3). Nur mit Freigabe von Thomas aufspielen."
+          if [ "$PRODUCT" = "ova" ]; then
+            TAG="ova-$(date +%Y%m%d)-${{ github.run_id }}"
+            gh release create "$TAG" release/OpenCCU-*-ova.zip* release/OpenCCU-*.ova* /mnt/work/build.log --title "CCU3-neu x86 (OVA) $TAG" --notes "Automatischer Bau (ova, x86-64). Nur mit Freigabe von Thomas aufspielen."
+          else
+            TAG="build-$(date +%Y%m%d)-${{ github.run_id }}"
+            gh release create "$TAG" release/OpenCCU-*-rpi3.zip* /mnt/work/build.log --title "CCU3-neu $TAG" --notes "Automatischer Bau (rpi3). Nur mit Freigabe von Thomas aufspielen."
+          fi
 
       - name: Build-Log sichern (bei Fehlschlag)
         if: steps.build.outputs.done != 'true'
@@ -89,9 +112,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ATTEMPT: ${{ github.event.inputs.attempt }}
+          PRODUCT: ${{ github.event.inputs.product }}
           REF_NAME: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
           case "$ATTEMPT" in ''|*[!0-9]*) echo "attempt ungueltig"; exit 1;; esac
+          case "$PRODUCT" in rpi3|ova) ;; *) echo "product ungueltig"; exit 1;; esac
           NEXT=$(( ATTEMPT + 1 ))
-          gh workflow run ccu3-neu-build.yml --ref "$REF_NAME" -f attempt=$NEXT -R "$REPO"
+          gh workflow run ccu3-neu-build.yml --ref "$REF_NAME" -f attempt=$NEXT -f product="$PRODUCT" -R "$REPO"
