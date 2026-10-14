@@ -14,6 +14,7 @@ DATA_DIR=/usr/local/etc/config/addons/${ID}
 NODE=/usr/bin/node
 PIDFILE=/var/run/${ID}.pid
 LEGACY=/usr/local/etc/config/rc.d/${ID}
+LEGACY_MONIT=/usr/local/etc/monit-${ID}.cfg
 export MATTER_HOMEMATIC_DATA_DIR="${DATA_DIR}"
 export HOME="${DATA_DIR}"
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
@@ -38,12 +39,20 @@ running() {
   tr '\000' '\n' < "/proc/$PID/cmdline" 2>/dev/null | grep -Fxq -e "${IMG_DIR}/dist/index.js" -e "${ADDON_DIR}/dist/index.js"
 }
 
-# Altes Add-on (rc.d-Skript aus /usr/local, startete eine zweite Bridge auf denselben Ports): beim ersten Start beiseitelegen.
+# Altes Add-on (rc.d-Skript und monit-Regel aus /usr/local, wuerden eine zweite Bridge auf denselben Ports starten bzw. monit wegen doppeltem
+# Dienstnamen "matter-homematic" am Start hindern): beim Start beiseitelegen. Die Bridge gehoert dem Abbild (S97 + /etc/monit.d), nicht dem Add-on.
+# Laeuft vor S98StartAddons und vor monit, deshalb greifen beide Aenderungen schon beim ersten Boot nach einer Wiederherstellung.
 migrate_legacy() {
-  [ -f "$LEGACY" ] || return 0
+  [ -f "$LEGACY" ] || [ -f "$LEGACY_MONIT" ] || return 0
   mkdir -p "${DATA_DIR}"
-  mv -f "$LEGACY" "${DATA_DIR}/rc.d-matter-homematic.alt-vor-image" 2>/dev/null || true
-  logger -t ${ID} "altes Add-on-Startskript beiseitegelegt (jetzt Teil des Systemabbilds)" 2>/dev/null || true
+  if [ -f "$LEGACY" ]; then
+    mv -f "$LEGACY" "${DATA_DIR}/rc.d-matter-homematic.alt-vor-image" 2>/dev/null || true
+    logger -t ${ID} "altes Add-on-Startskript beiseitegelegt (jetzt Teil des Systemabbilds)" 2>/dev/null || true
+  fi
+  if [ -f "$LEGACY_MONIT" ]; then
+    mv -f "$LEGACY_MONIT" "${DATA_DIR}/monit-matter-homematic.cfg.alt-vor-image" 2>/dev/null || true
+    logger -t ${ID} "alte monit-Regel beiseitegelegt (jetzt /etc/monit.d)" 2>/dev/null || true
+  fi
 }
 
 # Startet die Bridge aus Verzeichnis $1 und wartet auf Bereitschaft. 0 = bereit.
