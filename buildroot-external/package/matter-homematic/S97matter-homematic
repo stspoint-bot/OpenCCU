@@ -72,6 +72,8 @@ start_from() {
   return 0
 }
 
+# Rueckgabe von start(): 0 = gewaehlte Version laeuft und ist bereit, 3 = gewaehlte Version (aus /usr/local/addons) liess sich nicht starten,
+# stattdessen laeuft die Version im Abbild (Rueckfall), 1 = es laeuft keine Bridge.
 start() {
   [ -x "$NODE" ] || { echo "FAILED (node fehlt)"; return 1; }
   migrate_legacy
@@ -83,7 +85,7 @@ start() {
   start_from "$WANT" && return 0
   if [ "$WANT" != "$IMG_DIR" ]; then
     logger -t ${ID} "Version in ${WANT} liess sich nicht starten - Rueckfall auf die Version im Abbild" 2>/dev/null || true
-    start_from "$IMG_DIR" && return 0
+    start_from "$IMG_DIR" && return 3
   fi
   return 1
 }
@@ -105,9 +107,9 @@ stop() {
 }
 
 case "$1" in
-  start)   echo -n "Starting ${ID}: "; start && echo OK || echo FAILED ;;
-  stop)    echo -n "Stopping ${ID}: "; stop && echo OK || echo FAILED ;;
-  restart) stop && start ;;
+  start)   echo -n "Starting ${ID}: "; start; rc=$?; case $rc in 0) echo OK;; 3) echo "OK (Rueckfall auf Abbild-Version)";; *) echo FAILED;; esac; exit $rc ;;
+  stop)    echo -n "Stopping ${ID}: "; stop && echo OK || { echo FAILED; exit 1; } ;;
+  restart) stop || { echo "Stopping ${ID}: FAILED"; exit 1; }; echo -n "Starting ${ID}: "; start; rc=$?; case $rc in 0) echo OK;; 3) echo "OK (Rueckfall auf Abbild-Version)";; *) echo FAILED;; esac; exit $rc ;;
   status)  if running; then echo "${ID} is running (PID $(cat "$PIDFILE"))"; else echo "${ID} is stopped"; exit 1; fi ;;
   which)   choose_dir ;;
   *)       echo "Usage: $0 {start|stop|restart|status|which}" >&2; exit 1 ;;
