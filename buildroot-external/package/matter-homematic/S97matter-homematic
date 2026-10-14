@@ -55,6 +55,23 @@ migrate_legacy() {
   fi
 }
 
+# Wartet (hoechstens 120 s), bis die Funkdienste (BidCos-RF 32001, HmIP-RF 32010) auf eine XML-RPC-Anfrage antworten. Sonst meldet sich die
+# Bridge zu frueh an ("CCU not ready yet"), und es kommen nach einem CCU-Start keine Ereignisse an. Danach startet die Bridge in jedem Fall.
+wait_funk() {
+  n=0
+  while [ "$n" -lt 40 ]; do
+    ok=0
+    for p in 32001 32010; do
+      r=$(wget -q -T3 -O - --header='Content-Type: text/xml' --post-data='<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName><params/></methodCall>' "http://localhost:${p}/" 2>/dev/null | head -c 300)
+      case "$r" in *methodResponse*) ok=$((ok + 1));; esac
+    done
+    [ "$ok" -eq 2 ] && return 0
+    sleep 3; n=$((n + 1))
+  done
+  logger -t ${ID} "Funkdienste nach 120 s nicht bereit - Bridge startet trotzdem" 2>/dev/null || true
+  return 1
+}
+
 # Startet die Bridge aus Verzeichnis $1 und wartet auf Bereitschaft. 0 = bereit.
 start_from() {
   DIR=$1; APP="${DIR}/dist/index.js"
@@ -81,6 +98,7 @@ start() {
   mkdir -p "${DATA_DIR}"
   chmod 0700 "${DATA_DIR}" 2>/dev/null   # Datenordner enthaelt Konfiguration/Geheimnisse: nur root
   cd "${DATA_DIR}" || return 1
+  wait_funk
   WANT=$(choose_dir)
   start_from "$WANT" && return 0
   if [ "$WANT" != "$IMG_DIR" ]; then
