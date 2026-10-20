@@ -226740,13 +226740,20 @@ var require_CcuConnector = __commonJS({
         const channel = this.channels.get(address);
         if (!channel || channel.interface!==interfaceName || !channel.paramsets.VALUES || !Object.prototype.hasOwnProperty.call(channel.paramsets.VALUES,key)) return;
         const previous=channel.paramsets.VALUES[key];
-        if(previous!==undefined && typeof previous!==typeof value)return;
-        channel.paramsets.VALUES[key] = value;
+        // Homematic IP meldet Schalter teils als 0/1, die CCU kennt sie als wahr/falsch (oder umgekehrt).
+        // Der Wert wird auf den bekannten Typ angeglichen, statt die Meldung stillschweigend zu verwerfen.
+        let next = value;
+        if (previous!==undefined && typeof previous!==typeof value) {
+          if (typeof previous==="boolean" && typeof value==="number") next = value!==0;
+          else if (typeof previous==="number" && typeof value==="boolean") next = value ? 1 : 0;
+          else return;
+        }
+        channel.paramsets.VALUES[key] = next;
         this.emit("deviceEvent", {
           interface: interfaceName,
           address,
           key,
-          value
+          value: next
         });
       }
       /**
